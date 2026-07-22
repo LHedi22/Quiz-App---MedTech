@@ -21,3 +21,22 @@ class ShuffledVersion(BaseModel):
 
 class VersionCreateRequest(BaseModel):
     count: int
+
+
+class QuestionForRender(BaseModel):
+    """Canonical question content needed to print it on a version's PDF."""
+
+    id: UUID
+    text: str
+    options: list[str]
+
+
+class VersionForRender(BaseModel):
+    """A persisted version's mapping, needed to render its PDF."""
+
+    id: UUID
+    quiz_id: UUID
+    version_number: int
+    qr_id: str
+    question_order: list[UUID]
+    option_order: dict[str, list[int]]

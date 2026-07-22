@@ -1,0 +1,38 @@
+{
+  "_comment": "All coordinates are in PDF points (1/72 inch), ReportLab's coordinate system: origin (0,0) is the bottom-left corner of the page. This file is the single source of truth for both PDF rendering (app/services/pdf_gen.py) and, in Phase 5/6, OMR bubble-region alignment.",
+  "page_size": "LETTER",
+  "page_width_pt": 612,
+  "page_height_pt": 792,
+  "margin_pt": 54,
+
+  "qr_box": {
+    "_comment": "Fixed top-right corner on every page, so a page can always be identified even if scanned out of order or separated from the rest of the packet.",
+    "x_pt": 468,
+    "y_pt": 668,
+    "size_pt": 90
+  },
+
+  "header": {
+    "title_x_pt": 54,
+    "title_y_pt": 738,
+    "title_font_size": 14,
+    "meta_x_pt": 54,
+    "meta_y_pt": 720,
+    "meta_font_size": 10
+  },
+
+  "_comment_bubble_grid": "Question rows form a uniform grid. For question at zero-based row index r on a page (r = position_on_page), the row's baseline y is first_question_y_pt - r * row_height_pt. Question text is drawn at (question_text_x_pt, row_y + question_text_dy_pt). Option bubble i (0-based, i-th shuffled option, labeled A/B/C/...) is a circle of radius bubble_radius_pt centered at (option_start_x_pt + i * option_spacing_x_pt, row_y + bubble_dy_pt), with its letter label drawn bubble_label_dx_pt to the left of the circle center.",
+  "first_question_y_pt": 650,
+  "row_height_pt": 46,
+  "questions_per_page": 12,
+  "question_text_x_pt": 54,
+  "question_text_dy_pt": 14,
+  "question_text_font_size": 10,
+  "question_text_max_width_pt": 500,
+  "option_start_x_pt": 72,
+  "option_spacing_x_pt": 110,
+  "bubble_dy_pt": -8,
+  "bubble_radius_pt": 6,
+  "bubble_label_dx_pt": -16,
+  "option_label_font_size": 9
+}
