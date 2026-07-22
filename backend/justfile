@@ -1,0 +1,8 @@
+lint:
+    ruff check app tests
+
+format:
+    black app tests
+
+test:
+    pytest
