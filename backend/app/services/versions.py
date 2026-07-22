@@ -5,7 +5,12 @@ from uuid import UUID, uuid4
 import psycopg
 from psycopg.types.json import Json
 
-from app.models.version import QuestionForShuffle, ShuffledVersion
+from app.models.version import (
+    QuestionForRender,
+    QuestionForShuffle,
+    ShuffledVersion,
+    VersionForRender,
+)
 
 
 def get_questions_for_shuffle(conn: psycopg.Connection, quiz_id: UUID) -> list[QuestionForShuffle]:
@@ -48,3 +53,47 @@ def insert_versions(
                 )
                 inserted_ids.append(cur.fetchone()[0])
     return inserted_ids
+
+
+def get_version_for_render(
+    conn: psycopg.Connection, version_id: UUID
+) -> tuple[str, VersionForRender, dict[UUID, QuestionForRender]] | None:
+    """Load a version, its quiz title, and its questions' render content.
+
+    Returns None if the version doesn't exist.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select v.quiz_id, v.version_number, v.qr_id, v.question_order, v.option_order,
+                   q.title
+            from versions v
+            join quizzes q on q.id = v.quiz_id
+            where v.id = %s
+            """,
+            (version_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        quiz_id, version_number, qr_id, question_order, option_order, quiz_title = row
+
+        question_ids = [UUID(qid) for qid in question_order]
+        cur.execute(
+            "select id, text, options from questions where id = any(%s)",
+            (question_ids,),
+        )
+        questions_by_id = {
+            row[0]: QuestionForRender(id=row[0], text=row[1], options=row[2])
+            for row in cur.fetchall()
+        }
+
+    version = VersionForRender(
+        id=version_id,
+        quiz_id=quiz_id,
+        version_number=version_number,
+        qr_id=qr_id,
+        question_order=question_ids,
+        option_order=option_order,
+    )
+    return quiz_title, version, questions_by_id
