@@ -20,7 +20,7 @@ from uuid import UUID
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, Body, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile
 
 from app.db import get_connection
 from app.ml.omr.align import align_page
@@ -29,6 +29,7 @@ from app.ml.omr.extract import extract_bubble_crops
 from app.ml.omr.qr_decode import decode_qr_from_page
 from app.models.scoring import DetectedAnswer
 from app.services import submissions as submissions_service
+from app.services.auth import AuthUser, ensure_user_row, get_current_user
 from app.services.pdf_gen import load_template
 from app.services.scoring import lookup_version_by_qr_id, translate_and_score
 
@@ -136,20 +137,46 @@ async def list_submissions(status: str = "needs_review") -> list[dict]:
     return [_serialize_submission_summary(row) for row in rows]
 
 
+def _require_submission_owner(conn, submission_id: UUID, user: AuthUser) -> None:
+    """404s (not a leaked 401/403) if the submission doesn't exist or belongs
+    to another professor's quiz - the web app's review screens are the only
+    caller of the two routes below, and both must never let one professor
+    read or correct another's student answers (see CLAUDE.md Section 4).
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select q.owner_id from submissions s
+            join versions v on v.id = s.version_id
+            join quizzes q on q.id = v.quiz_id
+            where s.id = %s
+            """,
+            (submission_id,),
+        )
+        row = cur.fetchone()
+        if row is None or row[0] != user.id:
+            raise HTTPException(status_code=404, detail=f"submission {submission_id} not found")
+
+
 @router.get("/submissions/{submission_id}")
-async def get_submission(submission_id: UUID) -> dict:
+async def get_submission(submission_id: UUID, user: AuthUser = Depends(get_current_user)) -> dict:
     with get_connection() as conn:
+        ensure_user_row(conn, user)
+        _require_submission_owner(conn, submission_id, user)
         row = submissions_service.get_submission_with_answers(conn, submission_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"submission {submission_id} not found")
     return _serialize_submission_detail(row)
 
 
 @router.patch("/submissions/{submission_id}/answers/{answer_id}")
 async def correct_answer(
-    submission_id: UUID, answer_id: UUID, correct_option: str = Body(embed=True)
+    submission_id: UUID,
+    answer_id: UUID,
+    correct_option: str = Body(embed=True),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     with get_connection() as conn:
+        ensure_user_row(conn, user)
+        _require_submission_owner(conn, submission_id, user)
         updated = submissions_service.apply_manual_correction(
             conn, submission_id, answer_id, correct_option.strip().upper()
         )

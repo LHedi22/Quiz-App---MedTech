@@ -27,6 +27,7 @@ from app.services.geometry import bubble_center_pt, pdf_point_to_pixel
 from app.services.pdf_gen import load_template, render_version_pdf
 from app.services.qr import generate_qr
 from tests.omr_test_utils import render_page_rgb
+from tests.test_quizzes_endpoint import auth_headers, create_auth_user_and_token
 
 
 def _db_reachable() -> bool:
@@ -72,10 +73,17 @@ def seeded_quiz():
     non-identity question_order/option_order mapping, so expected scores can
     be hand-derived. 4 questions, 4 options each - the Excel-format option
     count `/scan` assumes."""
-    user_id = uuid.uuid4()
+    # A real Supabase Auth user (not just a raw public.users row) is needed
+    # so the PATCH /submissions/.../answers/... test below - which now
+    # requires an owning professor's bearer token per the ownership check
+    # added alongside Phase 7 - can actually authenticate as this quiz's
+    # owner.
+    email = f"scan-test-{uuid.uuid4().hex[:8]}@example.com"
+    user_id_str, token = create_auth_user_and_token(email)
+    user_id = uuid.UUID(user_id_str)
     quiz_id = uuid.uuid4()
     run_sql(f"""
-        insert into users (id, email) values ('{user_id}', 'scan-test-{user_id}@example.com');
+        insert into users (id, email) values ('{user_id}', '{email}');
         insert into quizzes (id, owner_id, title)
           values ('{quiz_id}', '{user_id}', 'Scan test quiz');
         """)
@@ -139,6 +147,7 @@ def seeded_quiz():
         "question_order": question_order,
         "option_order": option_order,
         "questions_by_order_index": questions_by_order_index,
+        "token": token,
     }
 
     # submissions.version_id has no ON DELETE CASCADE (CLAUDE.md Section 4),
@@ -148,6 +157,7 @@ def seeded_quiz():
         delete from submissions where version_id = '{version_id}';
         delete from quizzes where id = '{quiz_id}';
         delete from users where id = '{user_id}';
+        delete from auth.users where id = '{user_id}';
         """)
 
 
@@ -358,6 +368,7 @@ def test_professor_manual_correction_updates_score_and_status(seeded_quiz):
     response = client.patch(
         f"/submissions/{submission_id}/answers/{answer_id}",
         json={"correct_option": correct_option},
+        headers=auth_headers(seeded_quiz["token"]),
     )
 
     assert response.status_code == 200, response.text

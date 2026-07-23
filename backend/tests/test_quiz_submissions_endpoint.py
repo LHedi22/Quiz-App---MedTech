@@ -163,7 +163,9 @@ def test_quiz_submissions_requires_ownership(seeded_quiz_with_mixed_submissions)
 
 def test_get_submission_detail_includes_flagged_answers(seeded_quiz_with_mixed_submissions):
     fixture = seeded_quiz_with_mixed_submissions
-    response = client.get(f"/submissions/{fixture['needs_review_id']}")
+    response = client.get(
+        f"/submissions/{fixture['needs_review_id']}", headers=auth_headers(fixture["token"])
+    )
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "needs_review"
@@ -172,6 +174,20 @@ def test_get_submission_detail_includes_flagged_answers(seeded_quiz_with_mixed_s
     assert body["answers"][0]["question_no"] == 1
 
 
-def test_get_submission_detail_404_for_nonexistent():
-    response = client.get(f"/submissions/{uuid.uuid4()}")
+def test_get_submission_detail_404_for_nonexistent(seeded_quiz_with_mixed_submissions):
+    fixture = seeded_quiz_with_mixed_submissions
+    response = client.get(f"/submissions/{uuid.uuid4()}", headers=auth_headers(fixture["token"]))
     assert response.status_code == 404
+
+
+def test_get_submission_detail_requires_ownership(seeded_quiz_with_mixed_submissions):
+    fixture = seeded_quiz_with_mixed_submissions
+    other_id, other_token = create_auth_user_and_token(f"other-{uuid.uuid4().hex[:8]}@example.com")
+    try:
+        response = client.get(
+            f"/submissions/{fixture['needs_review_id']}", headers=auth_headers(other_token)
+        )
+        assert response.status_code == 404
+    finally:
+        run_sql("delete from users where id = %s", (other_id,))
+        run_sql("delete from auth.users where id = %s", (other_id,))
