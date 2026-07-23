@@ -10,6 +10,7 @@ venv/
 .mypy_cache/
 build/
 dist/
+backend/tests/test_output/
 
 # Flutter / Dart
 .dart_tool/
