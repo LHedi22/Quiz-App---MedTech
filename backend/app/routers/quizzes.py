@@ -15,8 +15,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.db import get_connection
 from app.models.quiz import QuizCreateRequest
 from app.services.auth import AuthUser, ensure_user_row, get_current_user
+from app.services.submissions import list_submissions_for_quiz
 
 router = APIRouter()
+
+
+def _serialize_submission_summary(row: dict) -> dict:
+    return {
+        **row,
+        "id": str(row["id"]),
+        "version_id": str(row["version_id"]),
+        "created_at": row["created_at"].isoformat(),
+    }
 
 
 @router.post("/quizzes", status_code=201)
@@ -71,3 +81,16 @@ async def list_quiz_versions(
             )
             rows = cur.fetchall()
     return [{"id": str(row[0]), "version_number": row[1]} for row in rows]
+
+
+@router.get("/quizzes/{quiz_id}/submissions")
+async def list_quiz_submissions(
+    quiz_id: UUID,
+    status: str | None = None,
+    user: AuthUser = Depends(get_current_user),
+) -> list[dict]:
+    with get_connection() as conn:
+        ensure_user_row(conn, user)
+        _get_owned_quiz_id(conn, quiz_id, user)
+        rows = list_submissions_for_quiz(conn, quiz_id, status)
+    return [_serialize_submission_summary(row) for row in rows]

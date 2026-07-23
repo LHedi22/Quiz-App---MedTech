@@ -136,6 +136,15 @@ async def list_submissions(status: str = "needs_review") -> list[dict]:
     return [_serialize_submission_summary(row) for row in rows]
 
 
+@router.get("/submissions/{submission_id}")
+async def get_submission(submission_id: UUID) -> dict:
+    with get_connection() as conn:
+        row = submissions_service.get_submission_with_answers(conn, submission_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"submission {submission_id} not found")
+    return _serialize_submission_detail(row)
+
+
 @router.patch("/submissions/{submission_id}/answers/{answer_id}")
 async def correct_answer(
     submission_id: UUID, answer_id: UUID, correct_option: str = Body(embed=True)

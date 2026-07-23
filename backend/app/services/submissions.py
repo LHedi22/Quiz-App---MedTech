@@ -87,6 +87,30 @@ def list_submissions_by_status(conn: psycopg.Connection, status: str) -> list[di
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
+def list_submissions_for_quiz(
+    conn: psycopg.Connection, quiz_id: UUID, status: str | None
+) -> list[dict]:
+    """Lists submissions for one quiz (joined through `versions.quiz_id`),
+    optionally filtered by status - backs the Phase 7 results dashboard,
+    which needs every status (mixed, not just `needs_review`) for a single
+    quiz, unlike `list_submissions_by_status`'s single-status/all-quizzes
+    scan-review queue.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            select s.id, s.version_id, s.student_id, s.total_score, s.status, s.created_at
+            from submissions s
+            join versions v on v.id = s.version_id
+            where v.quiz_id = %s and (%s::text is null or s.status = %s)
+            order by s.created_at
+            """,
+            (quiz_id, status, status),
+        )
+        cols = [c.name for c in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
 def apply_manual_correction(
     conn: psycopg.Connection,
     submission_id: UUID,
