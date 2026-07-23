@@ -26,6 +26,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from app.models.version import QuestionForRender, VersionForRender
+from app.services.geometry import bubble_center_pt, fiducial_positions_pt
 from app.services.qr import generate_qr
 
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "config" / "pdf_template.json"
@@ -37,10 +38,18 @@ def load_template() -> dict:
 
 
 def _bubble_center(template: dict, row_index: int, option_index: int) -> tuple[float, float]:
-    row_y = template["first_question_y_pt"] - row_index * template["row_height_pt"]
-    x = template["option_start_x_pt"] + option_index * template["option_spacing_x_pt"]
-    y = row_y + template["bubble_dy_pt"]
-    return x, y
+    return bubble_center_pt(template, row_index, option_index)
+
+
+def _draw_fiducials(c: canvas.Canvas, template: dict) -> None:
+    """Solid black corner squares consumed by Phase 5 OMR alignment. Drawn as
+    vector shapes (not raster images) so they don't disturb the "QR is the
+    only embedded raster image on the page" assumption Phase 4's tests rely
+    on."""
+    size = template["fiducials"]["size_pt"]
+    c.setFillColorRGB(0, 0, 0)
+    for x, y in fiducial_positions_pt(template).values():
+        c.rect(x, y, size, size, fill=1, stroke=0)
 
 
 def _draw_header(
@@ -129,6 +138,7 @@ def render_version_pdf(
     for page_index, page_questions in enumerate(pages):
         _draw_header(c, template, quiz_title, version.version_number, page_index + 1, len(pages))
         _draw_qr(c, template, qr_png)
+        _draw_fiducials(c, template)
         for row_index, question in enumerate(page_questions):
             question_no = page_index * per_page + row_index + 1
             shuffled_option_indices = version.option_order[str(question.id)]

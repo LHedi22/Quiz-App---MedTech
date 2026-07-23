@@ -5,6 +5,12 @@
   "page_height_pt": 792,
   "margin_pt": 54,
 
+  "fiducials": {
+    "_comment": "Four solid black squares near each page corner, drawn identically on every page. Phase 5 OMR alignment (app/ml/omr/align.py) detects these to compute a homography correcting scan rotation/skew before any bubble coordinate is trusted. Positions are corner-anchored: margin_from_edge_pt from each page edge to the square's near edges. size_pt is deliberately well above a QR finder-pattern's outer-square size (~17pt for this project's qr_box/qr_id length) so area-based detection can't confuse the two.",
+    "size_pt": 22,
+    "margin_from_edge_pt": 12
+  },
+
   "qr_box": {
     "_comment": "Fixed top-right corner on every page, so a page can always be identified even if scanned out of order or separated from the rest of the packet.",
     "x_pt": 468,
