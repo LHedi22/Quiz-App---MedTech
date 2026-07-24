@@ -1,3 +1,5 @@
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -6,12 +8,17 @@ from app.routers import excel, quizzes, scan, versions
 app = FastAPI(title="Exam Version Generator & Scanner")
 
 # The Flutter web client runs on a different origin (flutter run -d chrome
-# picks a random localhost port); CORS must be open for it to call this API
-# at all. Scoped to localhost/127.0.0.1 (any port) rather than a wildcard,
-# since this backend is dev-only for now (no production origin configured).
+# picks a random localhost port in dev; a real hosting domain in
+# production). Localhost/127.0.0.1 (any port) is always allowed for local
+# dev; ALLOWED_ORIGINS (comma-separated, e.g. "https://exam-scanner.web.app")
+# adds production origin(s) on top - set via Cloud Run env vars, never
+# hardcoded, since the hosting domain isn't known at code-write time.
+_extra_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origins=_extra_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -1,0 +1,11 @@
+.venv
+__pycache__
+*.pyc
+tests
+tests/test_output
+.pytest_cache
+*.egg-info
+supabase/.branches
+supabase/.temp
+uvicorn.out.log
+uvicorn.err.log
