@@ -46,3 +46,4 @@ desktop.ini
 # Env
 .env
 .env.local
+backend/uvicorn.*.log
