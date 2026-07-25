@@ -8,6 +8,13 @@ completed and require the user's action. Everything else in Phase 10 was
 completed and verified for real without these - see PROGRESS.md's Phase
 10 entries for exactly what was done in lieu of each item below.
 
+**User decision (2026-07-25):** asked directly whether to provide GCP/
+Supabase credentials now, defer the actual deploy to themselves later, or
+accept the current state - chose to run the remaining deploy steps
+themselves later, using the scripts prepared below (`docs/deploy_cloud_run.sh`,
+`backend/migrations/apply_migrations.py`). No further agent action is
+expected on items 1-3 until the user runs those steps or shares access.
+
 ### 1. Google Cloud Run deployment (Subtask 10.1)
 
 **What's blocked:** actually running `docs/deploy_cloud_run.sh` (the
