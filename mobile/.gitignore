@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Real release-signing credentials (Subtask 10.3) - never committed.
+/android/key.properties
+*.jks
+*.keystore

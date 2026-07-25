@@ -1,0 +1,4 @@
+storePassword=<password to the keystore file>
+keyPassword=<password to the signing key>
+keyAlias=<alias for the signing key>
+storeFile=<path to the .jks/.keystore file, e.g. /absolute/path/to/upload-keystore.jks>
