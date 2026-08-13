@@ -1,5 +1,55 @@
 # Blockers
 
+## Phase 7 (Next.js migration) — backend contract gap, not a credential issue
+
+**What's blocked:** Subtasks 7.2 (quiz creation / Excel upload / version
+generation) and 7.3 (version PDF download) need three existing FastAPI
+routes that currently have **no auth dependency and no ownership check at
+all** - not even a valid bearer token is required:
+
+- `POST /quizzes/{quiz_id}/upload` (`backend/app/routers/excel.py`)
+- `POST /quizzes/{quiz_id}/versions` (`backend/app/routers/versions.py`)
+- `GET /versions/{version_id}/pdf` (`backend/app/routers/versions.py`)
+
+Contrast with the sibling routes in `quizzes.py` (`POST/GET /quizzes`,
+`GET /quizzes/{id}/versions`, `GET /quizzes/{id}/submissions`) and
+`scan.py`'s `GET/PATCH /submissions/{id}...`, which all require
+`Depends(get_current_user)` plus an `owner_id`/join-based ownership check.
+The `PROGRESS.md` "Phase 7 prep, cont." entry documents that exact class of
+bug (broken access control, found by an automated security review) being
+fixed for `/submissions/{id}` and its PATCH route - but the same review
+evidently never covered `excel.py`/`versions.py`, which still let anyone
+who obtains a `quiz_id` (no login required) upload arbitrary questions to
+that quiz, regenerate its versions, or download any version's PDF.
+
+**Why this is a stop-and-ask, not a fix-it-myself:** the CLAUDE.md governing
+this migration explicitly added a new rule for this phase: "The backend API
+contract is the shared boundary between clients... A genuine backend gap
+found while building either client is a blocker to log and ask about, not
+something to patch around unilaterally" (Section 2, rule 7). Adding
+`Depends(get_current_user)` + an ownership check to these three routes is
+exactly the kind of backend change that rule reserves for a stop-and-ask,
+even though it's a small, mechanical, and clearly-scoped fix (the same
+shape as the one already applied to `submissions.py`'s routes).
+
+**What's ready to go once a decision is made:** the fix pattern already
+exists twice in this codebase to copy exactly (`quizzes.py`'s
+`_get_owned_quiz_id`, `scan.py`'s `_require_submission_owner`) - a
+`_get_owned_quiz_id`-style check added to `excel.py`'s
+`upload_quiz_excel` and `versions.py`'s `create_versions`, and a
+version-to-quiz-to-owner join added to `download_version_pdf`, each behind
+`Depends(get_current_user)`. Both `web/lib/api/client.ts` (this session,
+Subtask 7.0) and the mobile client already send a bearer token on every
+authenticated call, so closing this needs no frontend contract change on
+the happy path - only the two 7.2/7.3 web screens need to actually send the
+token they'll already be attaching to every other request.
+
+**What the user needs to do:** confirm whether to (a) apply the same
+ownership-check pattern to these three routes now, as a small backend fix
+before continuing 7.2/7.3, (b) proceed with 7.2/7.3 against the routes
+as-is and track this as a separate security follow-up, or (c) something
+else. Not proceeding further into 7.2/7.3 until this is answered.
+
 ## Phase 10 — Deployment: genuine credential/access/platform blockers
 
 Per CLAUDE.md Section 6 ("A credential, API key, or account access you
