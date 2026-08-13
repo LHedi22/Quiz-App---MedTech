@@ -105,6 +105,7 @@ def test_malformed_excel_row_produces_structured_error_and_writes_no_questions(p
         upload = client.post(
             f"/quizzes/{quiz_id}/upload",
             files={"file": ("missing_answer.xlsx", f, XLSX_CONTENT_TYPE)},
+            headers=auth_headers(professor["token"]),
         )
 
     assert upload.status_code == 422, upload.text
@@ -168,8 +169,8 @@ def _page_to_upload_bytes(page_rgb) -> bytes:
     return encoded.tobytes()
 
 
-def _download_and_rasterize_version_pdf(version_id: str):
-    response = client.get(f"/versions/{version_id}/pdf")
+def _download_and_rasterize_version_pdf(version_id: str, token: str):
+    response = client.get(f"/versions/{version_id}/pdf", headers=auth_headers(token))
     assert response.status_code == 200, response.text
     signed_url = response.json()["url"]
     pdf_bytes = httpx.get(signed_url).content
@@ -188,6 +189,7 @@ def quiz_with_one_version(professor):
         upload = client.post(
             f"/quizzes/{quiz_id}/upload",
             files={"file": ("valid.xlsx", f, XLSX_CONTENT_TYPE)},
+            headers=auth_headers(professor["token"]),
         )
     assert upload.status_code == 201, upload.text
 
@@ -203,7 +205,7 @@ def quiz_with_one_version(professor):
             cur.execute("select id from versions where quiz_id = %s", (quiz_id,))
             version_id = str(cur.fetchone()[0])
 
-    return {"quiz_id": quiz_id, "version_id": version_id}
+    return {"quiz_id": quiz_id, "version_id": version_id, "token": professor["token"]}
 
 
 def test_ambiguous_bubble_scan_needs_review_with_exact_flagged_question(quiz_with_one_version):
@@ -213,7 +215,7 @@ def test_ambiguous_bubble_scan_needs_review_with_exact_flagged_question(quiz_wit
     mapping = _fetch_version_mapping(version_id)
     questions_by_id = _fetch_questions_by_id(quiz_id)
     template = load_template()
-    page_rgb = _download_and_rasterize_version_pdf(version_id)
+    page_rgb = _download_and_rasterize_version_pdf(version_id, quiz_with_one_version["token"])
 
     # Row 1 (0-based) gets the deliberately ambiguous mark; every other row
     # is marked correctly, so exactly one answer should end up flagged.
@@ -278,7 +280,7 @@ def test_unreadable_qr_scan_returns_distinct_signal_and_creates_no_submission(
 ):
     version_id = quiz_with_one_version["version_id"]
     template = load_template()
-    page_rgb = _download_and_rasterize_version_pdf(version_id)
+    page_rgb = _download_and_rasterize_version_pdf(version_id, quiz_with_one_version["token"])
 
     x0, y0, x1, y1 = qr_box_pixel_rect(template, DPI)
     page_rgb[y0:y1, x0:x1] = 255  # whiteout the QR box entirely -> undecodable

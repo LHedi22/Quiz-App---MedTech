@@ -154,6 +154,7 @@ def test_50_question_30_version_load_within_time_bound_and_correct_at_scale(prof
     upload = client.post(
         f"/quizzes/{quiz_id}/upload",
         files={"file": ("large_quiz.xlsx", excel_bytes, XLSX_CONTENT_TYPE)},
+        headers=auth_headers(professor["token"]),
     )
     assert upload.status_code == 201, upload.text
     assert upload.json()["questions_inserted"] == NUM_QUESTIONS
@@ -178,7 +179,9 @@ def test_50_question_30_version_load_within_time_bound_and_correct_at_scale(prof
     sample_at = {0, 4, 9, 19, NUM_VERSIONS - 1}
 
     for i, version in enumerate(versions):
-        pdf_response = client.get(f"/versions/{version['id']}/pdf")
+        pdf_response = client.get(
+            f"/versions/{version['id']}/pdf", headers=auth_headers(professor["token"])
+        )
         assert pdf_response.status_code == 200, pdf_response.text
         signed_url = pdf_response.json()["url"]
         downloaded = httpx.get(signed_url)

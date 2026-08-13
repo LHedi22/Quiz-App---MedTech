@@ -1,8 +1,17 @@
-"""Subtask 3.3: POST /quizzes/{quiz_id}/versions + storage + immutability."""
+"""Subtask 3.3: POST /quizzes/{quiz_id}/versions + storage + immutability.
+
+Reworked alongside the Phase 7 (Next.js migration) backend auth fix: this
+route now requires a real Supabase-authenticated, quiz-owning professor
+(see docs/BLOCKERS.md's "Phase 7 (Next.js migration)" entry), so fixtures
+here create a real Supabase Auth user via `create_auth_user_and_token`
+(test_quizzes_endpoint.py) instead of a bare fabricated `users` row that
+could never authenticate.
+"""
 
 import uuid
 from collections import Counter
 
+import httpx
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
@@ -10,19 +19,24 @@ from psycopg.types.json import Json
 
 from app.db import DATABASE_URL
 from app.main import app
+from tests.test_quizzes_endpoint import (
+    SUPABASE_URL,
+    auth_headers,
+    create_auth_user_and_token,
+)
 
 
-def _db_reachable() -> bool:
+def _supabase_reachable() -> bool:
     try:
-        with psycopg.connect(DATABASE_URL, connect_timeout=2):
-            return True
-    except psycopg.OperationalError:
+        httpx.get(f"{SUPABASE_URL}/auth/v1/health", timeout=2.0)
+        return True
+    except httpx.HTTPError:
         return False
 
 
 pytestmark = pytest.mark.skipif(
-    not _db_reachable(),
-    reason="local Postgres not reachable (run `supabase start` in /backend)",
+    not _supabase_reachable(),
+    reason="local Supabase stack not reachable (run `supabase start` in /backend)",
 )
 
 client = TestClient(app)
@@ -60,10 +74,11 @@ def fetch_questions(quiz_id):
 
 @pytest.fixture
 def quiz_with_questions():
-    user_id = uuid.uuid4()
+    suffix = uuid.uuid4().hex[:8]
+    user_id, token = create_auth_user_and_token(f"versions-test-{suffix}@example.com")
     quiz_id = uuid.uuid4()
     run_sql(f"""
-        insert into users (id, email) values ('{user_id}', 'versions-test-{user_id}@example.com');
+        insert into users (id, email) values ('{user_id}', 'versions-test-{suffix}@example.com');
         insert into quizzes (id, owner_id, title)
           values ('{quiz_id}', '{user_id}', 'Versions test quiz');
         """)
@@ -86,40 +101,48 @@ def quiz_with_questions():
                     ),
                 )
         conn.commit()
-    yield quiz_id
+    yield {"quiz_id": quiz_id, "token": token}
     run_sql(f"""
         delete from quizzes where id = '{quiz_id}';
         delete from users where id = '{user_id}';
+        delete from auth.users where id = '{user_id}';
         """)
 
 
 @pytest.fixture
 def empty_quiz():
-    user_id = uuid.uuid4()
+    suffix = uuid.uuid4().hex[:8]
+    user_id, token = create_auth_user_and_token(f"empty-quiz-{suffix}@example.com")
     quiz_id = uuid.uuid4()
     run_sql(f"""
-        insert into users (id, email) values ('{user_id}', 'empty-quiz-{user_id}@example.com');
+        insert into users (id, email) values ('{user_id}', 'empty-quiz-{suffix}@example.com');
         insert into quizzes (id, owner_id, title)
           values ('{quiz_id}', '{user_id}', 'Empty quiz');
         """)
-    yield quiz_id
+    yield {"quiz_id": quiz_id, "token": token}
     run_sql(f"""
         delete from quizzes where id = '{quiz_id}';
         delete from users where id = '{user_id}';
+        delete from auth.users where id = '{user_id}';
         """)
 
 
 def test_requesting_5_versions_creates_exactly_5_valid_rows(quiz_with_questions):
-    response = client.post(f"/quizzes/{quiz_with_questions}/versions", json={"count": 5})
+    quiz_id = quiz_with_questions["quiz_id"]
+    response = client.post(
+        f"/quizzes/{quiz_id}/versions",
+        json={"count": 5},
+        headers=auth_headers(quiz_with_questions["token"]),
+    )
 
     assert response.status_code == 201
-    assert response.json() == {"quiz_id": str(quiz_with_questions), "versions_created": 5}
+    assert response.json() == {"quiz_id": str(quiz_id), "versions_created": 5}
 
-    rows = fetch_versions(quiz_with_questions)
+    rows = fetch_versions(quiz_id)
     assert len(rows) == 5
     assert sorted(r["version_number"] for r in rows) == [1, 2, 3, 4, 5]
 
-    questions = fetch_questions(quiz_with_questions)
+    questions = fetch_questions(quiz_id)
     expected_question_ids = set(questions.keys())
     qr_ids = set()
 
@@ -147,22 +170,45 @@ def test_requesting_5_versions_creates_exactly_5_valid_rows(quiz_with_questions)
 
 
 def test_zero_question_quiz_returns_400_and_writes_nothing(empty_quiz):
-    response = client.post(f"/quizzes/{empty_quiz}/versions", json={"count": 3})
+    quiz_id = empty_quiz["quiz_id"]
+    response = client.post(
+        f"/quizzes/{quiz_id}/versions",
+        json={"count": 3},
+        headers=auth_headers(empty_quiz["token"]),
+    )
 
     assert response.status_code == 400
-    assert fetch_versions(empty_quiz) == []
+    assert fetch_versions(quiz_id) == []
 
 
 def test_count_less_than_1_returns_400(quiz_with_questions):
-    response = client.post(f"/quizzes/{quiz_with_questions}/versions", json={"count": 0})
+    quiz_id = quiz_with_questions["quiz_id"]
+    response = client.post(
+        f"/quizzes/{quiz_id}/versions",
+        json={"count": 0},
+        headers=auth_headers(quiz_with_questions["token"]),
+    )
 
     assert response.status_code == 400
-    assert fetch_versions(quiz_with_questions) == []
+    assert fetch_versions(quiz_id) == []
 
 
-def test_nonexistent_quiz_returns_404():
+def test_create_versions_requires_auth():
     fake_quiz_id = uuid.uuid4()
     response = client.post(f"/quizzes/{fake_quiz_id}/versions", json={"count": 2})
+    assert response.status_code in (401, 422)
+
+
+def test_nonexistent_quiz_returns_404(quiz_with_questions):
+    # A real, authenticated professor still gets 404 (not a leaked 401/403)
+    # for a quiz id that doesn't belong to them - matches _get_owned_quiz_id's
+    # "404, never a distinguishable 403" behavior everywhere else in the API.
+    fake_quiz_id = uuid.uuid4()
+    response = client.post(
+        f"/quizzes/{fake_quiz_id}/versions",
+        json={"count": 2},
+        headers=auth_headers(quiz_with_questions["token"]),
+    )
 
     assert response.status_code == 404
 
@@ -171,8 +217,13 @@ def test_no_update_endpoint_exists_for_versions(quiz_with_questions):
     """Subtask 3.3: versions must be immutable once created — no code path may
     update question_order/option_order after creation.
     """
-    client.post(f"/quizzes/{quiz_with_questions}/versions", json={"count": 1})
-    version_id = fetch_versions(quiz_with_questions)[0]["id"]
+    quiz_id = quiz_with_questions["quiz_id"]
+    client.post(
+        f"/quizzes/{quiz_id}/versions",
+        json={"count": 1},
+        headers=auth_headers(quiz_with_questions["token"]),
+    )
+    version_id = fetch_versions(quiz_id)[0]["id"]
 
     for method in ("put", "patch", "delete"):
         response = getattr(client, method)(f"/versions/{version_id}")
@@ -181,7 +232,7 @@ def test_no_update_endpoint_exists_for_versions(quiz_with_questions):
             f"got {response.status_code}"
         )
     for method in ("put", "patch"):
-        response = getattr(client, method)(f"/quizzes/{quiz_with_questions}/versions/{version_id}")
+        response = getattr(client, method)(f"/quizzes/{quiz_id}/versions/{version_id}")
         assert response.status_code in (404, 405)
 
 

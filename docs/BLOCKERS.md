@@ -1,6 +1,22 @@
 # Blockers
 
-## Phase 7 (Next.js migration) — backend contract gap, not a credential issue
+## Phase 7 (Next.js migration) — backend contract gap, not a credential issue [RESOLVED 2026-08-13]
+
+**Resolution:** user chose "fix it now, then continue." Applied the same
+ownership-check pattern described below to all three routes
+(`excel.py::upload_quiz_excel`, `versions.py::create_versions`,
+`versions.py::download_version_pdf`), each now behind
+`Depends(get_current_user)` plus a `_get_owned_quiz_id` (or, for the PDF
+route, a version -> quiz -> owner check after lookup) ownership check,
+mirroring `quizzes.py`/`scan.py`'s existing pattern exactly. Updated every
+test that called these three routes (`test_upload_endpoint.py`,
+`test_pdf_storage_endpoint.py`, `test_versions_endpoint.py`, and the
+`test_e2e_*.py` files) to authenticate with a real Supabase Auth user via
+`create_auth_user_and_token`, and added an explicit `..._requires_auth`
+test per route. Full backend suite: 137 passed (up from 134), `ruff
+check`/`black --check` clean. See `docs/PROGRESS.md`'s "[Phase 7 backend
+fix]" entry for the full account. The rest of this section is preserved
+below as the original record of the gap.
 
 **What's blocked:** Subtasks 7.2 (quiz creation / Excel upload / version
 generation) and 7.3 (version PDF download) need three existing FastAPI

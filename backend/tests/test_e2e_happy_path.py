@@ -128,15 +128,17 @@ def _page_to_upload_bytes(page_rgb) -> bytes:
     return encoded.tobytes()
 
 
-def _download_and_rasterize_version_pdf(version_id: str):
-    response = client.get(f"/versions/{version_id}/pdf")
+def _download_and_rasterize_version_pdf(version_id: str, token: str):
+    response = client.get(f"/versions/{version_id}/pdf", headers=auth_headers(token))
     assert response.status_code == 200, response.text
     signed_url = response.json()["url"]
     pdf_bytes = httpx.get(signed_url).content
     return render_page_rgb(pdf_bytes, dpi=DPI)
 
 
-def _scan_version(quiz_id: str, version_id: str, wrong_question_order_index: int | None):
+def _scan_version(
+    quiz_id: str, version_id: str, wrong_question_order_index: int | None, token: str
+):
     """Renders+marks version_id's real PDF and POSTs it through /scan.
     If wrong_question_order_index is given, that row (0-based position within
     question_order) is marked with an *incorrect* option instead of the
@@ -144,7 +146,7 @@ def _scan_version(quiz_id: str, version_id: str, wrong_question_order_index: int
     mapping = _fetch_version_mapping(version_id)
     questions_by_id = _fetch_questions_by_id(quiz_id)
     template = load_template()
-    page_rgb = _download_and_rasterize_version_pdf(version_id)
+    page_rgb = _download_and_rasterize_version_pdf(version_id, token)
 
     for row_index, qid in enumerate(mapping["question_order"]):
         question = questions_by_id[str(qid)]
@@ -196,6 +198,7 @@ def test_full_happy_path_excel_to_three_finalized_correctly_scored_submissions(p
         upload = client.post(
             f"/quizzes/{quiz_id}/upload",
             files={"file": ("valid.xlsx", f, XLSX_CONTENT_TYPE)},
+            headers=auth_headers(professor["token"]),
         )
     assert upload.status_code == 201, upload.text
     assert upload.json()["questions_inserted"] == 3
@@ -227,7 +230,7 @@ def test_full_happy_path_excel_to_three_finalized_correctly_scored_submissions(p
 
     submission_ids = []
     for version_id, (wrong_index, expected_score) in expectations.items():
-        response = _scan_version(quiz_id, version_id, wrong_index)
+        response = _scan_version(quiz_id, version_id, wrong_index, professor["token"])
         assert response.status_code == 201, response.text
         body = response.json()
         assert body["status"] == "finalized", body
