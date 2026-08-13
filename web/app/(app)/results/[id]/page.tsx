@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { listQuizSubmissions } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/supabase/client";
 import type { SubmissionStatus, SubmissionSummary } from "@/lib/api/types";
@@ -115,6 +116,7 @@ export default function ResultsDashboardPage({ params }: { params: Promise<{ id:
               <th className="py-2 pr-4">Score</th>
               <th className="py-2 pr-4">Status</th>
               <th className="py-2 pr-4">Submitted</th>
+              <th className="py-2 pr-4"></th>
             </tr>
           </thead>
           <tbody data-testid="submissions-table-body">
@@ -132,6 +134,11 @@ export default function ResultsDashboardPage({ params }: { params: Promise<{ id:
                 <td className="py-2 pr-4">{STATUS_LABELS[submission.status]}</td>
                 <td className="py-2 pr-4">
                   {new Date(submission.created_at).toLocaleString()}
+                </td>
+                <td className="py-2 pr-4">
+                  <Link href={`/submissions/${submission.id}`} className="underline">
+                    {submission.status === "needs_review" ? "Review" : "View"}
+                  </Link>
                 </td>
               </tr>
             ))}
