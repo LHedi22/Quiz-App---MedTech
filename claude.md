@@ -25,10 +25,18 @@ This is slow and error-prone.
    for professor review on the web app. Everything else finalizes automatically.
 
 **Two clients, one backend:**
-- **Web app** — professor's control center. Quiz creation, Excel upload, version
-  generation, PDF download, results dashboard, flagged-answer review.
-- **Mobile app** — scanning only. Camera-first, batch-scan a stack of papers fast,
-  queue results, sync to backend.
+- **Web app** — professor's control center, built in **Next.js (TypeScript)**. Quiz
+  creation, Excel upload, version generation, PDF download, results dashboard,
+  flagged-answer review.
+- **Mobile app** — scanning only, built in **Flutter**. Camera-first, batch-scan a stack
+  of papers fast, queue results, sync to backend.
+
+> **Migration note (post-launch pivot):** the web app was originally built in Flutter web
+> and was migrated to Next.js to decouple web iteration speed from the mobile release
+> cycle. The mobile app was **not** affected by this migration and remains Flutter. See
+> `07_web_app_nextjs.md` (build) and `07b_web_migration_testing.md` (regression) for the
+> migration itself. Any future references to "the web app" in this file describe the
+> current Next.js implementation, not the retired Flutter-web one.
 
 ## 2. Non-negotiable rules
 
@@ -50,83 +58,30 @@ This is slow and error-prone.
    classifier confidence below threshold. Always route those to professor review.
 6. **Commit after every completed subtask** with a clear conventional-commit message.
    Never leave uncommitted working code at the end of a session.
+7. **The backend API contract is the shared boundary between clients.** Neither client
+   redesigns FastAPI routes or schemas to suit its own convenience. A genuine backend gap
+   found while building either client is a blocker to log and ask about, not something to
+   patch around unilaterally.
 
 ## 3. Tech stack
 
-
-|
- Layer          
-|
- Choice                                              
-|
-|
-----------------
-|
-------------------------------------------------------
-|
-|
- Backend        
-|
- FastAPI (Python), deployed on Google Cloud Run       
-|
-|
- Database/Auth  
-|
- Supabase (Postgres + Auth + Storage)                 
-|
-|
- Web client     
-|
- Flutter (web target)                                 
-|
-|
- Mobile client  
-|
- Flutter (iOS + Android)                              
-|
-|
- CV / OMR       
-|
- OpenCV (alignment, bubble region detection)          
-|
-|
- Bubble classifier 
-|
- scikit-learn or a small CNN (TensorFlow/PyTorch), trained on labeled bubble crops 
-|
-|
- QR generation  
-|
-`qrcode`
- (Python)                                     
-|
-|
- QR decoding    
-|
-`pyzbar`
- or OpenCV's 
-`QRCodeDetector`
-|
-|
- PDF generation 
-|
- ReportLab or WeasyPrint                              
-|
-|
- Excel parsing  
-|
-`openpyxl`
- / 
-`pandas`
-|
-|
- Testing        
-|
-`pytest`
- (backend), 
-`flutter test`
- (both clients)    
-|
+| Layer              | Choice                                                            |
+|---------------------|--------------------------------------------------------------------|
+| Backend             | FastAPI (Python), deployed on Google Cloud Run                    |
+| Database/Auth       | Supabase (Postgres + Auth + Storage)                               |
+| Web client          | **Next.js 15+ (App Router, TypeScript), Tailwind CSS**            |
+| Web auth/session    | **`@supabase/supabase-js` + `@supabase/ssr`**                     |
+| Web data fetching   | **React Query or SWR** (client-side refetch/optimistic updates)   |
+| Web testing         | **Vitest + React Testing Library (unit/component), Playwright (e2e)** |
+| Web hosting         | **Vercel, or static export via Firebase Hosting / Cloud Storage + CDN** |
+| Mobile client       | Flutter (iOS + Android) — **unchanged**                           |
+| CV / OMR            | OpenCV (alignment, bubble region detection)                        |
+| Bubble classifier   | scikit-learn or a small CNN (TensorFlow/PyTorch), trained on labeled bubble crops |
+| QR generation       | `qrcode` (Python)                                                   |
+| QR decoding         | `pyzbar` or OpenCV's `QRCodeDetector`                              |
+| PDF generation      | ReportLab or WeasyPrint                                             |
+| Excel parsing       | `openpyxl` / `pandas`                                              |
+| Testing (backend/mobile) | `pytest` (backend), `flutter test` (mobile)                  |
 
 ## 4. Data model (Postgres / Supabase)
 
@@ -185,42 +140,63 @@ create table answers (
 );
 ```
 
-Row Level Security: every table except nothing is scoped so a professor (`owner_id` /
-joined via `quiz_id`) can only see their own quizzes, versions, submissions, and answers.
-Write the RLS policies in Phase 1.
+Row Level Security: every table is scoped so a professor (`owner_id` / joined via
+`quiz_id`) can only see their own quizzes, versions, submissions, and answers. RLS
+policies live in Phase 1 and must behave identically regardless of which client
+(Next.js web or Flutter mobile) is making the request — see `07b_web_migration_testing.md`
+Subtask 7b.2 for the web-specific SSR regression check.
 
 ## 5. Repo structure
 
-/backend FastAPI app
-/app
-/routers excel.py, versions.py, scan.py, results.py
-/services parsing.py, shuffler.py, pdf_gen.py, qr.py, omr.py, scoring.py
-/models pydantic schemas
-/ml bubble_classifier/ (training script, model artifact, inference)
-/tests
-/web Flutter web app
-/mobile Flutter mobile app (can share packages with /web if same Flutter monorepo)
-/shared shared Dart package: API client, models, constants (if monorepo)
-/prompts phase prompt files (this is what you work through, in order)
-/docs
-PROGRESS.md agent updates this after every subtask
-BLOCKERS.md agent writes here ONLY when truly stuck; otherwise keep empty
-CLAUDE.md this file
+```
+/backend                FastAPI app
+  /app
+    /routers             excel.py, versions.py, scan.py, results.py
+    /services             parsing.py, shuffler.py, pdf_gen.py, qr.py, omr.py, scoring.py
+    /models                pydantic schemas
+    /ml                     bubble_classifier/ (training script, model artifact, inference)
+  /tests
 
+/web                     Next.js (TypeScript) web app — professor dashboard
+  /app                    App Router routes (auth, quizzes, results, review)
+  /components             shared React components
+  /lib
+    /api                   typed API client wrapping FastAPI calls
+    /supabase               Supabase client (browser) + server helpers
+  /middleware.ts           server-side auth route guarding
+  /tests                    Vitest/RTL unit + component tests
+  /e2e                       Playwright e2e tests
+
+/mobile                  Flutter mobile app (scanning only) — unchanged
+
+/shared                  Shared Dart package (mobile-only now; API client, models,
+                         constants). Do NOT assume this is shared with /web — the web
+                         app has its own TypeScript API client under /web/lib/api/.
+
+/prompts                 Phase prompt files (this is what you work through, in order)
+/docs
+  PROGRESS.md             agent updates this after every subtask
+  BLOCKERS.md              agent writes here ONLY when truly stuck; otherwise keep empty
+CLAUDE.md                 this file
+```
 
 ## 6. The autonomous agent loop (read this section every session)
 
 You will work through `/prompts/00_setup.md`, then `01_...md`, `02_...md`, etc., **in
 numeric order, without stopping between them, and without waiting for user confirmation**,
-unless you hit a genuine blocker (see below).
+unless you hit a genuine blocker (see below). Note the non-integer-numbered file
+`07b_web_migration_testing.md`, which runs immediately after `07_web_app_nextjs.md` and
+before `08_mobile_app.md` — treat it as a mandatory step in the same sequence, not an
+optional extra.
 
 For every subtask inside a prompt file, follow this loop exactly:
 
 1. **Read** the subtask's Goal, Steps, and Definition of Done (DoD).
 2. **Implement** the steps.
-3. **Self-test**: run the relevant test suite (`pytest`, `flutter test`, or manual script
-   as specified). If tests don't exist yet for this subtask, write them first as part of
-   the steps — do not skip testing because "it's simple."
+3. **Self-test**: run the relevant test suite (`pytest`, `flutter test`, `npm test` /
+   `npx playwright test`, or manual script as specified). If tests don't exist yet for
+   this subtask, write them first as part of the steps — do not skip testing because
+   "it's simple."
 4. **Verify DoD**: go through every DoD checkbox one by one. If any fails, return to step 2
    and fix it. Do not mark a subtask done based on assumption — only based on a passing
    check you actually ran.
@@ -250,18 +226,29 @@ continuing.
 
 - **Python**: type-hinted, `black`-formatted, `ruff`-linted. Pydantic models for all
   request/response schemas. No bare `except:`.
-- **Dart/Flutter**: `dart format`, follow effective Dart style guide. Widgets kept small
-  and composable. State management: Riverpod (unless a strong reason emerges to switch —
-  if so, log the reason in PROGRESS.md before switching).
-- **Naming**: snake_case for Python and SQL, camelCase for Dart, kebab-case for file names
-  outside code (docs, prompts).
-- **Tests are mandatory**, not optional, for every backend service function and every
-  non-trivial widget/screen. Aim for the DoD in each prompt file as the test bar, not less.
-- **Git**: one commit per subtask, conventional commit prefixes (`feat:`, `fix:`, `test:`,
-  `docs:`, `chore:`).
+- **TypeScript / Next.js (web)**: strict mode enabled in `tsconfig.json`. `eslint` +
+  `prettier` enforced via `npm run lint` / `npm run format`. Prefer server components
+  and server-side data fetching by default; use client components only where
+  interactivity requires it. All API calls go through `/web/lib/api/`, never ad-hoc
+  `fetch` calls scattered through components. No `any` types without an inline comment
+  explaining why. Tests: Vitest + React Testing Library for components/logic, Playwright
+  for user-facing flows — every non-trivial page/flow gets at least one Playwright test,
+  matching the DoD bar in each web-related prompt file, not less.
+- **Dart/Flutter (mobile only)**: `dart format`, follow effective Dart style guide.
+  Widgets kept small and composable. State management: Riverpod (unless a strong reason
+  emerges to switch — if so, log the reason in PROGRESS.md before switching).
+- **Naming**: snake_case for Python and SQL, camelCase for Dart and TypeScript,
+  kebab-case for file names outside code (docs, prompts).
+- **Tests are mandatory**, not optional, for every backend service function, every
+  non-trivial mobile widget/screen, and every non-trivial web page/flow. Aim for the DoD
+  in each prompt file as the test bar, not less.
+- **Git**: one commit per subtask, conventional commit prefixes (`feat:`, `fix:`,
+  `test:`, `docs:`, `chore:`).
 
 ## 8. Environment variables
 
+```
+# Backend
 SUPABASE_URL=
 SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
@@ -269,6 +256,11 @@ DATABASE_URL=
 CLOUD_RUN_SERVICE_NAME=
 ENV=development|staging|production
 
+# Web (Next.js) — NEXT_PUBLIC_* are exposed to the browser, keep the rest server-only
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_API_BASE_URL=
+```
 
 No LLM API keys should ever be required by this project. If a prompt file or a piece of
 generated code asks you to add one, that's a signal something has drifted from the spec —
@@ -276,21 +268,24 @@ stop and re-check against Section 2.
 
 ## 9. Phase index
 
-Work through these in order. Do not skip ahead even if a later phase seems easy.
+Work through these in order. Do not skip ahead even if a later phase seems easy. Note
+`7b`, inserted specifically to validate the Flutter→Next.js web migration before mobile
+work resumes.
 
-| # | File | Phase |
-|---|------|-------|
-| 0 | `00_setup.md` | Repo scaffolding, tooling, CI skeleton |
-| 1 | `01_database_schema.md` | Supabase schema, RLS, migrations |
-| 2 | `02_excel_upload_parsing.md` | Excel upload + validation + parsing service |
-| 3 | `03_version_generation.md` | Shuffle engine (questions + options per version) |
-| 4 | `04_pdf_qr_generation.md` | PDF rendering + QR code embedding + storage |
-| 5 | `05_omr_ml_pipeline.md` | Bubble classifier training + OMR detection engine |
-| 6 | `06_scan_grade_service.md` | Scan pipeline: decode → align → detect → translate → score → confidence gate |
-| 7 | `07_web_app.md` | Flutter web: professor dashboard, all screens |
-| 8 | `08_mobile_app.md` | Flutter mobile: scanning-only flow |
-| 9 | `09_integration_testing.md` | End-to-end tests across both clients + backend |
-| 10 | `10_deployment.md` | Cloud Run deploy, Supabase prod config, release |
+| #  | File                              | Phase                                                             |
+|----|-------------------------------------|--------------------------------------------------------------------|
+| 0  | `00_setup.md`                       | Repo scaffolding, tooling, CI skeleton                             |
+| 1  | `01_database_schema.md`             | Supabase schema, RLS, migrations                                   |
+| 2  | `02_excel_upload_parsing.md`        | Excel upload + validation + parsing service                        |
+| 3  | `03_version_generation.md`          | Shuffle engine (questions + options per version)                   |
+| 4  | `04_pdf_qr_generation.md`           | PDF rendering + QR code embedding + storage                        |
+| 5  | `05_omr_ml_pipeline.md`             | Bubble classifier training + OMR detection engine                  |
+| 6  | `06_scan_grade_service.md`          | Scan pipeline: decode → align → detect → translate → score → confidence gate |
+| 7  | `07_web_app_nextjs.md`              | **Next.js web app**: professor dashboard (migrated from Flutter web) |
+| 7b | `07b_web_migration_testing.md`      | **Web migration regression & full-system verification**            |
+| 8  | `08_mobile_app.md`                  | Flutter mobile: scanning-only flow                                 |
+| 9  | `09_integration_testing.md`         | End-to-end tests across both clients + backend                     |
+| 10 | `10_deployment.md`                  | Cloud Run deploy, Supabase prod config, release                    |
 
 ## 10. How to run locally
 
@@ -299,7 +294,7 @@ Work through these in order. Do not skip ahead even if a later phase seems easy.
 cd backend && uvicorn app.main:app --reload
 
 # web
-cd web && flutter run -d chrome
+cd web && npm run dev
 
 # mobile
 cd mobile && flutter run
