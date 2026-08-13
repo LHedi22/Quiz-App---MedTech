@@ -66,6 +66,34 @@ before continuing 7.2/7.3, (b) proceed with 7.2/7.3 against the routes
 as-is and track this as a separate security follow-up, or (c) something
 else. Not proceeding further into 7.2/7.3 until this is answered.
 
+## Phase 7b.6 — CI regression: no GitHub remote configured
+
+**What's blocked:** the DoD's literal "a single CI run on a clean branch
+shows all three jobs (backend, web/Next.js, mobile) passing" - this
+requires pushing to a GitHub repository and letting Actions run there.
+
+**Why:** `git remote -v` returns nothing - this repo has never been pushed
+anywhere, so there is no GitHub remote/Actions runner to trigger a real CI
+run on. Not a credential issue in the usual sense (no GitHub token is
+missing) - there is simply no remote repository to push to yet.
+
+**What's ready to go once a remote exists:** `.github/workflows/ci.yml`
+itself is valid (re-parsed with a YAML loader) and every one of its 9
+commands across all 3 jobs was run **individually, locally, in the exact
+order the workflow specifies** and passed: backend (`ruff check app
+tests`, `black --check app tests`, `pytest` - 137 passed), mobile
+(`flutter pub get`, `flutter analyze` - no issues, `flutter test` - 17
+passed), web (`npm ci` fresh install, `npm run lint`, `npm test`, `npx
+playwright install --with-deps chromium`, `npx playwright test` - 13
+passed, `npm run build`). The only thing not verified is GitHub Actions'
+own runner environment behaving identically to this local one, which no
+amount of local re-running can substitute for.
+
+**What the user needs to do:** push this repository to a GitHub remote
+(`git remote add origin <url>`, `git push`) and confirm the resulting
+Actions run is green, or share an existing remote for this session to push
+to.
+
 ## Phase 10 — Deployment: genuine credential/access/platform blockers
 
 Per CLAUDE.md Section 6 ("A credential, API key, or account access you
