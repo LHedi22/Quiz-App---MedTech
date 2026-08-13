@@ -8,10 +8,10 @@ GoTrue + PostgREST, not a unit test.
 """
 
 import os
-import subprocess
 import uuid
 
 import httpx
+import psycopg
 import pytest
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "http://127.0.0.1:54341")
@@ -27,7 +27,9 @@ SERVICE_ROLE_KEY = os.environ.get(
     "eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0."
     "EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU",
 )
-DB_CONTAINER = os.environ.get("SUPABASE_DB_CONTAINER", "supabase_db_exam_scanner")
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL", "postgresql://postgres:postgres@127.0.0.1:54342/postgres"
+)
 TEST_PASSWORD = "test-password-123!"
 
 
@@ -45,16 +47,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def run_sql(sql: str) -> str:
-    result = subprocess.run(
-        ["docker", "exec", "-i", DB_CONTAINER, "psql", "-U", "postgres", "-d", "postgres", "-tA"],
-        input=sql,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
-    return result.stdout
+def run_sql(sql: str) -> None:
+    with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
 
 
 def create_auth_user(email: str) -> str:
@@ -163,6 +159,8 @@ def two_users():
     }
 
     run_sql(f"""
+        delete from submissions where id in ('{submission_a_id}', '{submission_b_id}');
+        delete from quizzes where id in ('{quiz_a_id}', '{quiz_b_id}');
         delete from users where id in ('{user_a_id}', '{user_b_id}');
         delete from auth.users where id in ('{user_a_id}', '{user_b_id}');
     """)

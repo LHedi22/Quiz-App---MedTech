@@ -135,7 +135,67 @@ deploy into.
 with billing enabled, and either run `gcloud auth login` + the deploy
 script directly, or share credentials/access for this session to do it.
 
-### 2. A hosted (non-local) production Supabase project (Subtask 10.2)
+### 2. A hosted (non-local) production Supabase project (Subtask 10.2) [RESOLVED 2026-08-14]
+
+**Resolution:** user provided access to an existing hosted project ("Quiz
+App - MedTech", ref `iuwallqxodwjeeraqwop`, eu-west-1), authenticated via
+`supabase login` (their own browser flow, not shared with the agent).
+`backend/migrations/apply_migrations.py` ran unmodified against it -
+`information_schema.tables` shows exactly the 6 expected tables, 6 RLS
+policies present, seed data landed (1 professor/1 quiz/5 questions/2
+versions). Discovery: the project's direct-connection host
+(`db.<ref>.supabase.co`) resolves IPv6-only and this network has no IPv6
+route (`getaddrinfo failed`) - not a credential issue, a networking one;
+switched to the Session Pooler connection string
+(`postgres.<ref>@aws-0-<region>.pooler.supabase.com:5432`, IPv4-reachable)
+instead, which the migration script accepts unmodified since it only reads
+`DATABASE_URL`. The DB password was never entered into the conversation -
+the user wrote it directly into a gitignored `backend/.env.production`
+file, and every command referencing it downstream was piped through a
+redaction filter before being shown, so the connection string never
+appears in this transcript.
+
+Also applied the "minor, mechanical change" this entry already anticipated:
+`test_rls_cross_user.py`'s `run_sql` helper shelled out to
+`docker exec <container> psql`, which has no equivalent against a hosted
+project - replaced with a direct `psycopg.connect(DATABASE_URL)` call
+(matching `app/db.py`'s own connection pattern exactly), defaulting to the
+same local connection string used everywhere else in this test suite so
+local runs are unaffected. Re-ran the full 12-test suite against **both**
+targets to confirm no regression: local (12 passed) and the hosted
+project (12 passed) - all cross-user isolation and own-data-visibility
+assertions hold identically in both environments. This also surfaced and
+fixed a real, previously-latent bug in the fixture's own teardown SQL: it
+deleted `users` before deleting the `quizzes` row still referencing it via
+`owner_id` (no `ON DELETE CASCADE` on that column, unlike `questions`/
+`versions`, which cascade off `quizzes`) - a `ForeignKeyViolation` on
+first run against the hosted project (a case the previous local-only
+verification evidently never actually exercised cleanly, despite Phase
+1.2's "all 12 pass" log entry). Fixed by deleting `submissions` and
+`quizzes` before `users` in the teardown; leftover rows from the one
+failed run were manually cleaned up and the hosted project's row counts
+verified back to exactly the seeded state (1 user, 1 quiz) afterward.
+
+**Operational note, not itself a blocker:** the `api-keys` CLI command
+used to retrieve this project's anon/service_role keys printed the full
+legacy `service_role` JWT in plaintext into this session (the newer
+`sb_secret_...` key came back properly redacted; the legacy JWT-format key
+did not) - flagged to the user immediately, who was advised to rotate that
+specific legacy key in the dashboard since it now sits in this
+transcript. The anon/publishable key is meant to be public and needs no
+rotation. Full backend suite re-verified at 137 passing (unchanged) after
+this fix; `ruff check`/`black --check` clean.
+
+**Still open:** applying the exact same, now-hosted-verified script/test
+pair to this project's *own* `DATABASE_URL`/`SUPABASE_URL` env vars for
+routine local development is unaffected (defaults unchanged); this section
+now only tracks whether the user wants the hosted project used for
+anything beyond this verification (e.g. as the actual `DATABASE_URL` a
+deployed Cloud Run service would use) - see blocker #1 below, still open.
+
+---
+
+**Original blocker record, preserved below:**
 
 **What's blocked:** applying `backend/migrations/apply_migrations.py` to
 an actual hosted production Supabase project's Postgres instance, and the

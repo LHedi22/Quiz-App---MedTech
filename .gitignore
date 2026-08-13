@@ -43,7 +43,12 @@ desktop.ini
 .claude/
 .remember/
 
+# Supabase CLI local runtime state (created by `supabase` commands run from repo root)
+/supabase/.temp/
+
 # Env
 .env
 .env.local
+.env.*
+!.env.example
 backend/uvicorn.*.log
