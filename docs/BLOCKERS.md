@@ -142,11 +142,18 @@ lint` clean after the TS fix; a real Playwright spec that exercises
 passes locally, confirming the platform-detection fallback didn't regress
 the Windows path this dev machine actually uses; `app.main:app`/`/health`
 confirmed to match the uvicorn command and health-poll target used in the
-new workflow steps. What's *not* verified yet: whether this passes for
-real inside an actual `ubuntu-latest` runner - the next CI run after this
-commit is pushed is that verification, and per CLAUDE.md's own
-"objective achievement loop," failures there get fixed and re-pushed
-rather than assumed away.
+new workflow steps. **Verified for real, not assumed:** pushed as commit `3067aee`, watched the
+resulting run (`gh run watch`, after confirming its actual JSON
+`conclusion` field rather than trusting the watch command's own exit code
+alone) - all 3 jobs passed: `backend` in 3m35s, `mobile` in 3m44s
+(15+2 previously-failing real-Supabase-Auth tests now all pass), `web`
+green end-to-end including `npx playwright test` and `npm run build`.
+Run: https://github.com/LHedi22/Quiz-App---MedTech/actions/runs/31757848798.
+This is the first time this repo's full test suite has passed inside a
+real CI runner. Two cosmetic, non-blocking annotations remain (GitHub
+forcing `actions/checkout`/`actions/setup-python`'s pinned SHAs onto
+Node 24 since they target the now-deprecated Node 20) - not a failure,
+optional cleanup later.
 
 ---
 
