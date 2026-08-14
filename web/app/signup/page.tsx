@@ -1,5 +1,9 @@
 import Link from "next/link";
 import { signup } from "./actions";
+import { Field } from "@/components/Field";
+import { Button } from "@/components/Button";
+import { Alert } from "@/components/Alert";
+import { Bubble } from "@/components/Bubble";
 
 export default async function SignupPage({
   searchParams,
@@ -11,49 +15,30 @@ export default async function SignupPage({
   return (
     <main className="flex flex-1 items-center justify-center p-8">
       <div className="w-full max-w-sm space-y-6">
-        <h1 className="text-2xl font-semibold">Sign up</h1>
-        {error && (
-          <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </p>
-        )}
+        <div className="flex items-center gap-2">
+          <Bubble tone="outline" size={10} />
+          <Bubble tone="olive" size={10} />
+          <Bubble tone="outline" size={10} />
+        </div>
+        <h1 className="font-display text-2xl font-semibold text-olive-deep">Sign up</h1>
+        {error && <Alert tone="error">{error}</Alert>}
         <form className="space-y-4">
-          <div className="space-y-1">
-            <label htmlFor="email" className="block text-sm font-medium">
-              Email
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              required
-              className="w-full rounded border border-gray-300 px-3 py-2"
-            />
-          </div>
-          <div className="space-y-1">
-            <label htmlFor="password" className="block text-sm font-medium">
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              required
-              minLength={6}
-              className="w-full rounded border border-gray-300 px-3 py-2"
-            />
-          </div>
-          <button
-            formAction={signup}
-            type="submit"
-            className="w-full rounded bg-black px-4 py-2 text-white"
-          >
+          <Field label="Email" id="email" name="email" type="email" required />
+          <Field
+            label="Password"
+            id="password"
+            name="password"
+            type="password"
+            required
+            minLength={6}
+          />
+          <Button formAction={signup} type="submit" className="w-full">
             Sign up
-          </button>
+          </Button>
         </form>
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-ink-soft">
           Already have an account?{" "}
-          <Link href="/login" className="underline">
+          <Link href="/login" className="text-olive underline underline-offset-2">
             Log in
           </Link>
         </p>

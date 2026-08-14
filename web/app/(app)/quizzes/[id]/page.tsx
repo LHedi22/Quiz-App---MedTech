@@ -8,6 +8,10 @@ import {
 } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/supabase/client";
 import type { VersionSummary } from "@/lib/api/types";
+import { Field } from "@/components/Field";
+import { Button } from "@/components/Button";
+import { Alert } from "@/components/Alert";
+import { Bubble } from "@/components/Bubble";
 
 export default function QuizDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id: quizId } = use(params);
@@ -72,61 +76,52 @@ export default function QuizDetailPage({ params }: { params: Promise<{ id: strin
 
   return (
     <div className="max-w-xl space-y-6">
-      <h1 className="text-2xl font-semibold">Versions</h1>
+      <h1 className="font-display text-2xl font-semibold text-olive-deep">Versions</h1>
 
-      {error && (
-        <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </p>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
 
       {versions === null ? (
-        <p className="text-gray-600">Loading…</p>
+        <p className="text-ink-soft">Loading…</p>
       ) : versions.length === 0 ? (
         <form onSubmit={handleGenerate} className="space-y-4">
-          <div className="space-y-1">
-            <label htmlFor="count" className="block text-sm font-medium">
-              Number of versions
-            </label>
-            <input
-              id="count"
-              type="number"
-              min={1}
-              required
-              value={count}
-              onChange={(e) => setCount(Number(e.target.value))}
-              className="w-32 rounded border border-gray-300 px-3 py-2"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
+          <Field
+            label="Number of versions"
+            id="count"
+            type="number"
+            min={1}
+            required
+            value={count}
+            onChange={(e) => setCount(Number(e.target.value))}
+            className="w-32"
+          />
+          <Button type="submit" disabled={busy}>
             Generate versions
-          </button>
+          </Button>
         </form>
       ) : (
-        <ul className="divide-y divide-gray-200 rounded border border-gray-200">
+        <ul className="divide-y divide-sand rounded-sm border border-sand bg-paper-raised">
           {versions.map((version) => (
             <li
               key={version.id}
               className="flex items-center justify-between px-4 py-3"
               data-version-id={version.id}
             >
-              <span>Version {version.version_number}</span>
+              <span className="flex items-center gap-2">
+                <Bubble tone="outline" />
+                Version <span className="font-mono">{version.version_number}</span>
+              </span>
               {pdfUrls[version.id] ? (
                 <a
                   href={pdfUrls[version.id]}
                   target="_blank"
                   rel="noreferrer"
                   data-testid="download-pdf"
-                  className="rounded bg-black px-3 py-1.5 text-sm text-white"
+                  className="rounded-sm bg-olive px-3 py-1.5 text-sm font-medium text-paper hover:bg-olive-deep"
                 >
                   Download PDF
                 </a>
               ) : (
-                <span className="text-sm text-gray-500">Preparing…</span>
+                <span className="text-sm text-ink-soft">Preparing…</span>
               )}
             </li>
           ))}

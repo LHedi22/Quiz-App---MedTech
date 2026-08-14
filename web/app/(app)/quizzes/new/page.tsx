@@ -5,8 +5,16 @@ import { useRouter } from "next/navigation";
 import { createQuiz, uploadQuizExcel, UploadValidationError } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/supabase/client";
 import type { RowError } from "@/lib/api/types";
+import { Field } from "@/components/Field";
+import { Button } from "@/components/Button";
+import { Alert } from "@/components/Alert";
 
 type Step = "title" | "upload";
+
+const STEPS: { key: Step; label: string }[] = [
+  { key: "title", label: "Title" },
+  { key: "upload", label: "Upload" },
+];
 
 export default function NewQuizPage() {
   const router = useRouter();
@@ -64,37 +72,47 @@ export default function NewQuizPage() {
 
   return (
     <div className="max-w-xl space-y-6">
-      <h1 className="text-2xl font-semibold">New quiz</h1>
+      <h1 className="font-display text-2xl font-semibold text-olive-deep">New quiz</h1>
 
-      {error && (
-        <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </p>
-      )}
+      <ol className="flex items-center gap-4 text-sm">
+        {STEPS.map((s, i) => {
+          const isCurrent = s.key === step;
+          const isDone = STEPS.findIndex((x) => x.key === step) > i;
+          return (
+            <li key={s.key} className="flex items-center gap-2">
+              <span
+                className={`flex h-6 w-6 items-center justify-center rounded-full font-mono text-xs ${
+                  isCurrent || isDone
+                    ? "bg-olive text-paper"
+                    : "border border-sand text-ink-soft"
+                }`}
+              >
+                {i + 1}
+              </span>
+              <span className={isCurrent ? "font-medium text-ink" : "text-ink-soft"}>
+                {s.label}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+
+      {error && <Alert tone="error">{error}</Alert>}
 
       {step === "title" && (
         <form onSubmit={handleCreateQuiz} className="space-y-4">
-          <div className="space-y-1">
-            <label htmlFor="title" className="block text-sm font-medium">
-              Quiz title
-            </label>
-            <input
-              id="title"
-              name="title"
-              type="text"
-              required
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded border border-gray-300 px-3 py-2"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-          >
+          <Field
+            label="Quiz title"
+            id="title"
+            name="title"
+            type="text"
+            required
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+          <Button type="submit" disabled={busy}>
             Create quiz
-          </button>
+          </Button>
         </form>
       )}
 
@@ -102,7 +120,7 @@ export default function NewQuizPage() {
         <div className="space-y-4">
           <form onSubmit={handleUpload} className="space-y-4">
             <div className="space-y-1">
-              <label htmlFor="file" className="block text-sm font-medium">
+              <label htmlFor="file" className="block text-sm font-medium text-ink">
                 Excel file (questions, options, correct answers)
               </label>
               <input
@@ -111,46 +129,39 @@ export default function NewQuizPage() {
                 type="file"
                 accept=".xlsx"
                 required
-                className="block w-full text-sm"
+                className="block w-full text-sm text-ink-soft file:mr-3 file:rounded-sm file:border-0 file:bg-sand file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-olive-deep"
               />
             </div>
-            <button
-              type="submit"
-              disabled={busy}
-              className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
-            >
+            <Button type="submit" disabled={busy}>
               Upload
-            </button>
+            </Button>
           </form>
 
           {rowErrors && rowErrors.length > 0 && (
-            <div className="space-y-2 rounded border border-red-200 bg-red-50 p-4">
-              <p className="text-sm font-medium text-red-700">
-                Fix the following rows and upload again:
-              </p>
-              <ul className="space-y-1 text-sm text-red-700">
+            <Alert tone="error">
+              <p className="font-medium">Fix the following rows and upload again:</p>
+              <ul className="mt-2 space-y-1">
                 {rowErrors.map((rowError) => (
                   <li key={rowError.row_number}>
                     Row {rowError.row_number}: {rowError.messages.join("; ")}
                   </li>
                 ))}
               </ul>
-            </div>
+            </Alert>
           )}
 
           {questionsInserted !== null && (
-            <div className="space-y-3 rounded border border-green-200 bg-green-50 p-4">
-              <p className="text-sm text-green-800">
-                {questionsInserted} question{questionsInserted === 1 ? "" : "s"} parsed and saved.
-              </p>
-              <button
-                type="button"
-                onClick={() => router.push(`/quizzes/${quizId}`)}
-                className="rounded bg-black px-4 py-2 text-sm text-white"
-              >
-                Continue to generate versions
-              </button>
-            </div>
+            <Alert tone="success">
+              <div className="space-y-3">
+                <p>
+                  {questionsInserted} question{questionsInserted === 1 ? "" : "s"} parsed and
+                  saved.
+                </p>
+                <Button type="button" onClick={() => router.push(`/quizzes/${quizId}`)}>
+                  Continue to generate versions
+                </Button>
+              </div>
+            </Alert>
           )}
         </div>
       )}

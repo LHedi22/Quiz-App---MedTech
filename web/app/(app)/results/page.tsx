@@ -11,17 +11,17 @@ export default async function ResultsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Results</h1>
+      <h1 className="font-display text-2xl font-semibold text-olive-deep">Results</h1>
 
       {quizzes.length === 0 ? (
-        <p className="text-gray-600">No quizzes yet.</p>
+        <p className="text-ink-soft">No quizzes yet.</p>
       ) : (
-        <ul className="divide-y divide-gray-200 rounded border border-gray-200">
+        <ul className="divide-y divide-sand rounded-sm border border-sand bg-paper-raised">
           {quizzes.map((quiz) => (
             <li key={quiz.id}>
               <Link
                 href={`/results/${quiz.id}`}
-                className="block px-4 py-3 hover:bg-gray-50"
+                className="block px-4 py-3 hover:bg-sand/40"
               >
                 {quiz.title}
               </Link>

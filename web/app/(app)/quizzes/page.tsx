@@ -12,24 +12,27 @@ export default async function QuizzesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Quizzes</h1>
-        <Link href="/quizzes/new" className="rounded bg-black px-4 py-2 text-sm text-white">
+        <h1 className="font-display text-2xl font-semibold text-olive-deep">Quizzes</h1>
+        <Link
+          href="/quizzes/new"
+          className="rounded-sm bg-olive px-4 py-2 text-sm font-medium text-paper hover:bg-olive-deep"
+        >
           New quiz
         </Link>
       </div>
 
       {quizzes.length === 0 ? (
-        <p className="text-gray-600">No quizzes yet.</p>
+        <p className="text-ink-soft">No quizzes yet.</p>
       ) : (
-        <ul className="divide-y divide-gray-200 rounded border border-gray-200">
+        <ul className="divide-y divide-sand rounded-sm border border-sand bg-paper-raised">
           {quizzes.map((quiz) => (
             <li key={quiz.id}>
               <Link
                 href={`/quizzes/${quiz.id}`}
-                className="flex items-center justify-between px-4 py-3 hover:bg-gray-50"
+                className="flex items-center justify-between px-4 py-3 hover:bg-sand/40"
               >
                 <span>{quiz.title}</span>
-                <span className="text-sm text-gray-500">
+                <span className="font-mono text-xs text-ink-soft">
                   {new Date(quiz.created_at).toLocaleDateString()}
                 </span>
               </Link>

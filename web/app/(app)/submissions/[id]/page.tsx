@@ -5,6 +5,10 @@ import Link from "next/link";
 import { correctAnswer, getSubmission } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/supabase/client";
 import type { SubmissionDetail } from "@/lib/api/types";
+import { Select } from "@/components/Select";
+import { Button } from "@/components/Button";
+import { Alert } from "@/components/Alert";
+import { Bubble } from "@/components/Bubble";
 
 const OPTIONS = ["A", "B", "C", "D"];
 
@@ -53,57 +57,69 @@ export default function SubmissionReviewPage({
   }
 
   if (error) {
-    return (
-      <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">
-        {error}
-      </p>
-    );
+    return <Alert tone="error">{error}</Alert>;
   }
 
   if (!submission) {
-    return <p className="text-gray-600">Loading…</p>;
+    return <p className="text-ink-soft">Loading…</p>;
   }
 
   const flaggedAnswers = submission.answers.filter((a) => a.flagged);
+  const statusTone =
+    submission.status === "finalized" ? "olive" : submission.status === "needs_review" ? "flag" : "outline";
 
   return (
     <div className="max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Submission review</h1>
-        <p className="text-sm text-gray-600">
+        <h1 className="font-display text-2xl font-semibold text-olive-deep">
+          Submission review
+        </h1>
+        <p className="text-sm text-ink-soft">
           Student: {submission.student_id ?? "—"} · Status:{" "}
-          <span data-testid="submission-status">{submission.status}</span>
-          {submission.total_score !== null && <> · Score: {submission.total_score}</>}
+          <span data-testid="submission-status" className="inline-flex items-center gap-2 font-mono text-ink">
+            <Bubble tone={statusTone} size={7} />
+            {submission.status}
+          </span>
+          {submission.total_score !== null && (
+            <>
+              {" "}
+              · Score: <span className="font-mono text-ink">{submission.total_score}</span>
+            </>
+          )}
         </p>
       </div>
 
       {submission.status !== "needs_review" ? (
-        <p className="text-green-700">This submission is finalized. Nothing left to review.</p>
+        <p className="flex items-center gap-2 text-olive-deep">
+          <Bubble tone="olive" />
+          This submission is finalized. Nothing left to review.
+        </p>
       ) : (
         <div className="space-y-4" data-testid="flagged-answers">
           {flaggedAnswers.map((answer) => (
             <div
               key={answer.id}
-              className="space-y-3 rounded border border-yellow-300 bg-yellow-50 p-4"
+              className="space-y-3 rounded-sm border border-flag/40 bg-flag-soft p-4"
               data-testid="flagged-answer"
               data-question-no={answer.question_no}
             >
-              <p className="text-sm font-medium">Question {answer.question_no}</p>
-              <p className="text-sm text-gray-600">
+              <p className="flex items-center gap-2 text-sm font-medium text-ink">
+                <Bubble tone="flag" />
+                Question {answer.question_no}
+              </p>
+              <p className="text-sm text-ink-soft">
                 Detected: {answer.detected_option ?? "unclear"} (confidence{" "}
-                {answer.confidence.toFixed(2)})
+                <span className="font-mono">{answer.confidence.toFixed(2)}</span>)
               </p>
               <div className="flex items-center gap-3">
-                <label htmlFor={`correct-${answer.id}`} className="text-sm font-medium">
-                  Correct option
-                </label>
-                <select
+                <Select
+                  label="Correct option"
                   id={`correct-${answer.id}`}
                   value={selections[answer.id] ?? ""}
                   onChange={(e) =>
                     setSelections((prev) => ({ ...prev, [answer.id]: e.target.value }))
                   }
-                  className="rounded border border-gray-300 px-2 py-1 text-sm"
+                  wrapperClassName="flex items-center gap-2"
                 >
                   <option value="" disabled>
                     Choose…
@@ -113,22 +129,21 @@ export default function SubmissionReviewPage({
                       {opt}
                     </option>
                   ))}
-                </select>
-                <button
+                </Select>
+                <Button
                   type="button"
                   disabled={!selections[answer.id] || savingAnswerId === answer.id}
                   onClick={() => handleSave(answer.id)}
-                  className="rounded bg-black px-3 py-1.5 text-sm text-white disabled:opacity-50"
                 >
                   Save
-                </button>
+                </Button>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      <Link href="/results" className="text-sm underline">
+      <Link href="/results" className="text-sm text-olive underline underline-offset-2">
         Back to results
       </Link>
     </div>

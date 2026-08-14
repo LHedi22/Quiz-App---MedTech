@@ -8,8 +8,8 @@ export default async function AccountPage() {
 
   return (
     <div className="space-y-2">
-      <h1 className="text-2xl font-semibold">Account</h1>
-      <p className="text-gray-600">{user?.email}</p>
+      <h1 className="font-display text-2xl font-semibold text-olive-deep">Account</h1>
+      <p className="text-ink-soft">{user?.email}</p>
     </div>
   );
 }

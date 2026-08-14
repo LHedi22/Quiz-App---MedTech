@@ -1,26 +1,39 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Cream ledger, olive ink - the exam-scanner's own palette, not a
+     generic theme. Deliberately light-only: this is a professor's
+     admin tool, not a content app, and a paper/ledger aesthetic has
+     no natural dark counterpart worth inventing for its own sake. */
+  --paper: #f5f0e1;
+  --paper-raised: #faf7ee;
+  --ink: #2a2a1e;
+  --ink-soft: #5c5a48;
+  --olive: #55672f;
+  --olive-deep: #34401c;
+  --sand: #e4dfc9;
+  --flag: #a6472a;
+  --flag-soft: #f3e3dc;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-paper: var(--paper);
+  --color-paper-raised: var(--paper-raised);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-olive: var(--olive);
+  --color-olive-deep: var(--olive-deep);
+  --color-sand: var(--sand);
+  --color-flag: var(--flag);
+  --color-flag-soft: var(--flag-soft);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-display: var(--font-fraunces);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
 }
