@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { evaluateCaptureQuality } from "@/lib/scan/imageQuality";
 import { RealScanApi } from "@/lib/scan/scanApi";
 import { useScanQueue } from "@/lib/scan/useScanQueue";
 import { useReachability } from "@/lib/scan/useReachability";
+import { needsReviewSubmissionIds, summarizeSheets } from "@/lib/scan/summary";
 import { getAccessToken } from "@/lib/supabase/client";
 
 type CameraState = "initializing" | "ready" | "permission_denied" | "no_camera" | "error";
@@ -41,6 +43,8 @@ export default function ScanPage() {
   const scanApi = useMemo(() => new RealScanApi(API_BASE_URL), []);
   const { sheets, submit, retry } = useScanQueue(scanApi, tryGetAccessToken);
   const online = useReachability(`${API_BASE_URL}/health`);
+  const summary = useMemo(() => summarizeSheets(sheets), [sheets]);
+  const reviewIds = useMemo(() => needsReviewSubmissionIds(sheets), [sheets]);
 
   useEffect(() => {
     let cancelled = false;
@@ -188,6 +192,47 @@ export default function ScanPage() {
           {capturing ? "…" : "●"}
         </button>
       </div>
+
+      {summary.attempted > 0 && (
+        <div
+          className="grid grid-cols-2 gap-2 rounded-sm border border-sand bg-paper-raised p-4 text-sm sm:grid-cols-4"
+          data-testid="batch-summary"
+        >
+          <div>
+            <div className="text-ink-soft">Attempted</div>
+            <div className="font-mono text-lg text-ink" data-testid="summary-attempted">
+              {summary.attempted}
+            </div>
+          </div>
+          <div>
+            <div className="text-ink-soft">Finalized</div>
+            <div className="font-mono text-lg text-olive-deep" data-testid="summary-finalized">
+              {summary.finalized}
+            </div>
+          </div>
+          <div>
+            <div className="text-ink-soft">Needs review</div>
+            <div className="font-mono text-lg text-flag" data-testid="summary-needs-review">
+              {summary.needsReview}
+            </div>
+          </div>
+          <div>
+            <div className="text-ink-soft">Failed</div>
+            <div className="font-mono text-lg text-flag" data-testid="summary-failed">
+              {summary.failed}
+            </div>
+          </div>
+          {reviewIds.length > 0 && (
+            <Link
+              href={`/scan/review?ids=${reviewIds.join(",")}`}
+              data-testid="review-flagged-link"
+              className="col-span-2 mt-2 text-olive underline underline-offset-2 sm:col-span-4"
+            >
+              Review {reviewIds.length} flagged submission{reviewIds.length === 1 ? "" : "s"} →
+            </Link>
+          )}
+        </div>
+      )}
 
       {sheets.length > 0 && (
         <ul className="space-y-2" data-testid="sheet-list">
