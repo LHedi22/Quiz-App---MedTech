@@ -70,3 +70,23 @@ test("the scan route is reachable from the nav and has no horizontal overflow at
   const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
   expect(scrollWidth).toBeLessThanOrEqual(377);
 });
+
+test("going offline shows a persistent banner and disables capture; coming back online clears it (Subtask 7c.3)", async ({
+  page,
+  context,
+}) => {
+  await signUp(page);
+  await stubGetUserMediaRejection(page, "NotFoundError");
+
+  await page.goto("/scan");
+  await expect(page.getByTestId("offline-banner")).toHaveCount(0);
+  await expect(page.getByTestId("capture-button")).toBeDisabled(); // no camera in this environment either
+
+  await context.setOffline(true);
+  await expect(page.getByTestId("offline-banner")).toBeVisible();
+  await expect(page.getByTestId("offline-banner")).toContainText(/no connection/i);
+  await expect(page.getByTestId("capture-button")).toBeDisabled();
+
+  await context.setOffline(false);
+  await expect(page.getByTestId("offline-banner")).toHaveCount(0, { timeout: 15000 });
+});

@@ -1,15 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { evaluateCaptureQuality } from "@/lib/scan/imageQuality";
+import { RealScanApi } from "@/lib/scan/scanApi";
+import { useScanQueue } from "@/lib/scan/useScanQueue";
+import { useReachability } from "@/lib/scan/useReachability";
+import { getAccessToken } from "@/lib/supabase/client";
 
 type CameraState = "initializing" | "ready" | "permission_denied" | "no_camera" | "error";
 
-/** Browser camera capture screen (Subtask 7c.2). Mirrors mobile's
- * CameraCaptureScreen (Phase 8.2) UX contract - same screen stays up after a
- * failed pre-check, showing an inline retake message rather than navigating
- * away - but submission to `POST /scan` and connectivity gating are wired in
- * by Subtask 7c.3, not here. */
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL!;
+
+async function tryGetAccessToken(): Promise<string | null> {
+  try {
+    return await getAccessToken();
+  } catch {
+    // /scan has no auth requirement server-side (see web/lib/scan/scanApi.ts) -
+    // an anonymous professor session just submits without a token, it never
+    // blocks the scan.
+    return null;
+  }
+}
+
+/** Browser camera capture screen (Subtasks 7c.2-7c.4). Mirrors mobile's
+ * CameraCaptureScreen (Phase 8.2) UX contract for the local pre-check - same
+ * screen stays up after a failed pre-check, showing an inline retake message
+ * rather than navigating away. Submission itself has no offline queue: a
+ * passing frame is POSTed immediately, and connectivity is gated up front
+ * (Subtask 7c.3's locked decision - see prompts/07c_web_responsive_scanning.md). */
 export default function ScanPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -19,6 +37,10 @@ export default function ScanPage() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [retakeReason, setRetakeReason] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+
+  const scanApi = useMemo(() => new RealScanApi(API_BASE_URL), []);
+  const { sheets, submit, retry } = useScanQueue(scanApi, tryGetAccessToken);
+  const online = useReachability(`${API_BASE_URL}/health`);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,15 +113,31 @@ export default function ScanPage() {
         );
         return;
       }
-      // Subtask 7c.3 wires the passing frame into POST /scan here.
+      canvas.toBlob(
+        (blob) => {
+          if (blob) submit(blob);
+        },
+        "image/jpeg",
+        0.92,
+      );
     } finally {
       setCapturing(false);
     }
-  }, [cameraState, capturing]);
+  }, [cameraState, capturing, submit]);
 
   return (
     <div className="flex min-h-[60vh] flex-col gap-4">
       <h1 className="font-display text-2xl font-semibold text-olive-deep">Scan</h1>
+
+      {!online && (
+        <div
+          role="alert"
+          data-testid="offline-banner"
+          className="rounded-sm border border-flag/40 bg-flag-soft p-3 text-sm text-flag"
+        >
+          No connection — scanning unavailable. Reconnect to keep scanning.
+        </div>
+      )}
 
       <div
         className="relative flex-1 overflow-hidden rounded-sm border border-sand bg-ink"
@@ -144,12 +182,52 @@ export default function ScanPage() {
           data-testid="capture-button"
           aria-label="Capture"
           onClick={capture}
-          disabled={cameraState !== "ready" || capturing}
+          disabled={cameraState !== "ready" || capturing || !online}
           className="flex h-16 w-16 items-center justify-center rounded-full bg-olive text-2xl text-paper transition-colors hover:bg-olive-deep disabled:opacity-40"
         >
           {capturing ? "…" : "●"}
         </button>
       </div>
+
+      {sheets.length > 0 && (
+        <ul className="space-y-2" data-testid="sheet-list">
+          {sheets.map((sheet, index) => (
+            <li
+              key={sheet.id}
+              className="flex items-center justify-between rounded-sm border border-sand bg-paper-raised px-3 py-2 text-sm"
+              data-testid="sheet-item"
+              data-state={sheet.state}
+            >
+              <span>
+                Sheet {index + 1}
+                {sheet.state === "submitting" && " — submitting…"}
+                {sheet.state === "submitted" && sheet.result && (
+                  <>
+                    {" "}
+                    — {sheet.result.status === "needs_review" ? "needs review" : sheet.result.status}
+                  </>
+                )}
+                {sheet.state === "failed" && (
+                  <span className="text-flag" data-testid="sheet-failed-label">
+                    {" "}
+                    — not submitted — retry
+                  </span>
+                )}
+              </span>
+              {sheet.state === "failed" && (
+                <button
+                  type="button"
+                  data-testid="retry-button"
+                  onClick={() => retry(sheet.id)}
+                  className="rounded-sm border border-flag/40 px-2 py-1 text-xs font-medium text-flag hover:bg-flag-soft"
+                >
+                  Retry
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <canvas ref={canvasRef} className="hidden" />
     </div>
