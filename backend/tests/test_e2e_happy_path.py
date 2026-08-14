@@ -32,7 +32,7 @@ from app.db import DATABASE_URL
 from app.main import app
 from app.services.geometry import bubble_center_pt, pdf_point_to_pixel
 from app.services.pdf_gen import load_template
-from tests.omr_test_utils import render_page_rgb
+from tests.omr_test_utils import render_page_rgb, write_name_on_page
 from tests.test_quizzes_endpoint import auth_headers, create_auth_user_and_token
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "excel"
@@ -147,6 +147,7 @@ def _scan_version(
     questions_by_id = _fetch_questions_by_id(quiz_id)
     template = load_template()
     page_rgb = _download_and_rasterize_version_pdf(version_id, token)
+    write_name_on_page(page_rgb, template, "E2E STUDENT", dpi=DPI)
 
     for row_index, qid in enumerate(mapping["question_order"]):
         question = questions_by_id[str(qid)]

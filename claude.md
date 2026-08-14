@@ -123,6 +123,9 @@ create table submissions (
   id uuid primary key default gen_random_uuid(),
   version_id uuid not null references versions(id),
   student_id text,                          -- optional, nullable
+  student_name text,                        -- OCR-read from the printed name field, nullable
+  name_confidence float,                    -- Tesseract's 0-100 word-confidence, nullable
+  name_flagged boolean not null default false, -- confidence gate: true routes to needs_review
   total_score float,
   status text not null default 'pending',   -- pending | finalized | needs_review
   created_at timestamptz not null default now()

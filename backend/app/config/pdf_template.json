@@ -18,6 +18,21 @@
     "size_pt": 90
   },
 
+  "name_field": {
+    "_comment": "Ruled line for the student to handwrite their name. Page 1 only (app/services/pdf_gen.py only calls _draw_name_field for page_index == 0) - the scan pipeline doesn't support multi-page versions yet (see app/routers/scan.py), so every other page is unscoreable regardless. crop_*_pt is deliberately taller than the ruled line itself, to catch ascenders/descenders of handwriting above and below it; it's what app/ml/omr/name_ocr.py crops for OCR via geometry.name_field_pixel_rect.",
+    "label": "Name:",
+    "label_x_pt": 54,
+    "label_y_pt": 690,
+    "label_font_size": 11,
+    "line_x0_pt": 92,
+    "line_x1_pt": 450,
+    "line_y_pt": 690,
+    "crop_x_pt": 88,
+    "crop_y_pt": 686,
+    "crop_width_pt": 362,
+    "crop_height_pt": 28
+  },
+
   "header": {
     "title_x_pt": 54,
     "title_y_pt": 738,

@@ -159,3 +159,15 @@ export function correctAnswer(
     },
   );
 }
+
+export function correctName(
+  submissionId: string,
+  studentName: string,
+  accessToken: string,
+): Promise<SubmissionDetail> {
+  return request<SubmissionDetail>(`/submissions/${submissionId}/name`, accessToken, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ student_name: studentName }),
+  });
+}

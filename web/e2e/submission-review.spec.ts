@@ -98,3 +98,64 @@ test("correcting a flagged answer updates the UI live; multiple flags all requir
 
   await runSql(`delete from submissions where id = $1`, [submissionId]);
 });
+
+test("correcting a flagged student name updates the UI live and finalizes when no answers are flagged", async ({
+  page,
+}) => {
+  const email = uniqueEmail();
+  await page.goto("/signup");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("correct-horse-battery-staple");
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await expect(page).toHaveURL(/\/quizzes$/);
+
+  await page.getByRole("link", { name: "New quiz" }).click();
+  await page.getByLabel("Quiz title").fill(`Name review test ${Date.now()}`);
+  await page.getByRole("button", { name: "Create quiz" }).click();
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles(path.join(__dirname, "fixtures", "valid.xlsx"));
+  await page.getByRole("button", { name: "Upload" }).click();
+  await expect(page.getByText(/questions parsed and saved/)).toBeVisible();
+  await page.getByRole("button", { name: "Continue to generate versions" }).click();
+  await expect(page).toHaveURL(/\/quizzes\/[0-9a-f-]+$/);
+  const quizId = page.url().match(/\/quizzes\/([0-9a-f-]+)$/)![1];
+
+  await page.getByLabel("Number of versions").fill("1");
+  await page.getByRole("button", { name: "Generate versions" }).click();
+  await expect(page.getByTestId("download-pdf")).toHaveCount(1);
+
+  const versionRows = await queryRows<{ id: string }>(
+    `select id from versions where quiz_id = $1 limit 1`,
+    [quizId],
+  );
+  const versionId = versionRows[0].id;
+
+  // Seed a submission flagged only for its name - no answers at all, so the
+  // only thing standing between "needs_review" and "finalized" is the name
+  // confirmation (mirrors backend/tests/test_scan_endpoint.py's
+  // test_professor_name_correction_finalizes_a_submission_flagged_only_for_name).
+  const submissionId = randomUUID();
+  await runSql(
+    `insert into submissions
+       (id, version_id, student_id, student_name, name_confidence, name_flagged, total_score, status)
+     values ($1, $2, null, 'J0hn Sm1th', 42.0, true, 0, 'needs_review')`,
+    [submissionId, versionId],
+  );
+
+  await page.goto(`/submissions/${submissionId}`);
+
+  await expect(page.getByTestId("submission-status")).toHaveText("needs_review");
+  await expect(page.getByTestId("flagged-name")).toBeVisible();
+  await expect(page.getByTestId("flagged-name")).toContainText("J0hn Sm1th");
+  await expect(page.getByTestId("flagged-answer")).toHaveCount(0);
+
+  await page.getByLabel("Correct name").fill("John Smith");
+  await page.getByTestId("flagged-name").getByRole("button", { name: "Save" }).click();
+
+  await expect(page.getByTestId("submission-status")).toHaveText("finalized");
+  await expect(page.getByText("This submission is finalized.")).toBeVisible();
+  await expect(page.getByText(/Student:\s*John Smith/)).toBeVisible();
+
+  await runSql(`delete from submissions where id = $1`, [submissionId]);
+});

@@ -188,3 +188,49 @@ def test_render_is_deterministic_for_identical_input():
     first = render_version_pdf(quiz_title, version, questions_by_id)
     second = render_version_pdf(quiz_title, version, questions_by_id)
     assert first == second
+
+
+# ---- name field DoD ---------------------------------------------------------
+
+
+def _has_name_field_line(page: fitz.Page, template: dict) -> bool:
+    """fitz's get_drawings() reports coordinates in page space (origin
+    top-left, y-down), while pdf_template.json's line_y_pt is in ReportLab's
+    coordinate system (origin bottom-left, y-up) - flip before comparing."""
+    field = template["name_field"]
+    x0, x1 = field["line_x0_pt"], field["line_x1_pt"]
+    y = template["page_height_pt"] - field["line_y_pt"]
+
+    def _matches(ax: float, ay: float, bx: float, by: float) -> bool:
+        return abs(ax - x0) < 0.1 and abs(bx - x1) < 0.1 and abs(ay - y) < 0.1 and abs(by - y) < 0.1
+
+    for drawing in page.get_drawings():
+        for item in drawing["items"]:
+            if item[0] != "l":
+                continue
+            p1, p2 = item[1], item[2]
+            if _matches(p1.x, p1.y, p2.x, p2.y) or _matches(p2.x, p2.y, p1.x, p1.y):
+                return True
+    return False
+
+
+def test_name_field_label_and_line_appear_on_page_one():
+    quiz_title, version, questions_by_id = _make_version(num_questions=3)
+    pdf_bytes = render_version_pdf(quiz_title, version, questions_by_id)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    template = load_template()
+
+    assert template["name_field"]["label"] in doc[0].get_text()
+    assert _has_name_field_line(doc[0], template)
+
+
+def test_name_field_does_not_appear_on_later_pages_of_a_multi_page_version():
+    template = load_template()
+    per_page = template["questions_per_page"]
+    quiz_title, version, questions_by_id = _make_version(num_questions=per_page + 4)
+    pdf_bytes = render_version_pdf(quiz_title, version, questions_by_id)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    assert doc.page_count == 2
+    assert template["name_field"]["label"] not in doc[1].get_text()
+    assert not _has_name_field_line(doc[1], template)

@@ -18,9 +18,12 @@ FROM python:3.11-slim
 # not just at pip-install time - omitting this makes decode_qr fail with an
 # OSError the moment a real scan comes in, not at build time. opencv-python-
 # headless still needs libglib2.0-0 despite being the "headless" build.
+# tesseract-ocr is the actual OCR binary pytesseract shells out to
+# (app/ml/omr/name_ocr.py) - the pip package alone is just a thin wrapper.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libzbar0 \
     libglib2.0-0 \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

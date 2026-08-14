@@ -54,6 +54,25 @@ def render_page_rgb(pdf_bytes: bytes, page_index: int = 0, dpi: int = 200) -> np
     return np.array(image)
 
 
+def write_name_on_page(image: np.ndarray, template: dict, text: str, dpi: int = 200) -> None:
+    """Draws `text` into the name field's crop region in place, simulating a
+    student having handwritten their name just *above* the printed ruled
+    line (not on top of it - a baseline anchored to the crop's bottom edge
+    would sit right on the rendered line and get sliced through it, unlike
+    real handwriting which sits above the line it's ruled against).
+    cv2.putText (a built-in Hershey font) rather than a system TrueType font,
+    so this works identically on every platform this test suite runs on."""
+    from app.services.geometry import name_field_pixel_rect, pdf_point_to_pixel
+
+    x0, y0, _x1, _y1 = name_field_pixel_rect(template, dpi)
+    field = template["name_field"]
+    _, line_py = pdf_point_to_pixel(
+        field["line_x0_pt"], field["line_y_pt"], template["page_height_pt"], dpi
+    )
+    origin = (x0 + 4, int(round(line_py)) - 4)
+    cv2.putText(image, text, origin, cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2, cv2.LINE_AA)
+
+
 def rotate_with_padding(image: np.ndarray, angle_deg: float) -> tuple[np.ndarray, np.ndarray]:
     """Rotate `image` by `angle_deg` about its center, expanding the canvas
     (white-filled) so nothing is cropped. Returns the rotated image and the

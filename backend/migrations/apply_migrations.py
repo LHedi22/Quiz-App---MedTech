@@ -33,11 +33,13 @@ import psycopg
 MIGRATIONS_DIR = Path(__file__).parent
 
 # Order matters: 0002 depends on 0001's tables existing, 0003 seeds data
-# into tables 0001/0002 create and secure.
+# into tables 0001/0002 create and secure, 0004 adds the name-detection
+# columns to the submissions table 0001 already created.
 MIGRATION_FILES = [
     "0001_core_tables.up.sql",
     "0002_rls_policies.up.sql",
     "0003_seed_demo_data.sql",
+    "0004_student_name.up.sql",
 ]
 
 

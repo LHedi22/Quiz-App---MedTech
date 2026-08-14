@@ -57,3 +57,19 @@ def qr_box_pixel_rect(template: dict, dpi: int) -> tuple[int, int, int, int]:
         box["x_pt"] + box["size_pt"], box["y_pt"] + box["size_pt"], page_h, dpi
     )
     return int(round(x0)), int(round(y0)), int(round(x1)), int(round(y1))
+
+
+def name_field_pixel_rect(template: dict, dpi: int) -> tuple[int, int, int, int]:
+    """Pixel bounding box (x0, y0, x1, y1) of the handwritten-name crop region,
+    top-left origin. Page 1 only - see name_field's _comment in
+    pdf_template.json."""
+    field = template["name_field"]
+    page_h = template["page_height_pt"]
+    x0, y1 = pdf_point_to_pixel(field["crop_x_pt"], field["crop_y_pt"], page_h, dpi)
+    x1, y0 = pdf_point_to_pixel(
+        field["crop_x_pt"] + field["crop_width_pt"],
+        field["crop_y_pt"] + field["crop_height_pt"],
+        page_h,
+        dpi,
+    )
+    return int(round(x0)), int(round(y0)), int(round(x1)), int(round(y1))

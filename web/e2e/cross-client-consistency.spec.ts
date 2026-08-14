@@ -39,7 +39,11 @@ test("a scanned submission appears correctly in the dashboard, and a web correct
   const row = page.getByTestId("submission-row");
   await expect(row).toHaveCount(1);
   await expect(row).toHaveAttribute("data-status", "needs_review");
-  await expect(page.getByText("cross-client-student")).toBeVisible();
+  // Dashboard shows student_name ahead of student_id once one exists (see
+  // web/app/(app)/results/[id]/page.tsx) - scripts/e2e_web_regression_scan.py
+  // hand-writes a name derived from the student_id it's given
+  // ("cross-client-student" -> "Cross Client Student").
+  await expect(page.getByText("Cross Client Student")).toBeVisible();
 
   await page.getByRole("link", { name: "Review" }).click();
   await expect(page).toHaveURL(new RegExp(`/submissions/${scanResult.submission_id}$`));

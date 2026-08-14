@@ -64,11 +64,18 @@ test("full happy path driven through the Next.js UI finalizes all 3 versions at 
   }
 
   // Confirmed in the Next.js dashboard too, not just via the API responses.
+  // The row is now identified by student_name, not student_id: the
+  // dashboard prefers the OCR-read name once one exists (see
+  // web/app/(app)/results/[id]/page.tsx), and scripts/
+  // e2e_web_regression_scan.py hand-writes a name derived from the
+  // student_id it's given ("happy-path-student-0" -> "Happy Path Student
+  // 0") so this scan still finalizes (a blank name field would otherwise
+  // route every submission to needs_review regardless of the answers).
   await page.goto(`/results/${quizId}`);
   await expect(page.getByTestId("submission-row")).toHaveCount(3);
   for (const i of [0, 1, 2]) {
     const row = page.getByTestId("submission-row").filter({
-      has: page.getByText(`happy-path-student-${i}`),
+      has: page.getByText(`Happy Path Student ${i}`),
     });
     await expect(row).toHaveAttribute("data-status", "finalized");
     await expect(row).toContainText(i === 1 ? "2" : "3");

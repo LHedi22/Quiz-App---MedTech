@@ -26,7 +26,7 @@ from app.main import app
 from app.services.geometry import bubble_center_pt, pdf_point_to_pixel
 from app.services.pdf_gen import load_template, render_version_pdf
 from app.services.qr import generate_qr
-from tests.omr_test_utils import render_page_rgb
+from tests.omr_test_utils import render_page_rgb, write_name_on_page
 from tests.test_quizzes_endpoint import auth_headers, create_auth_user_and_token
 
 
@@ -196,9 +196,11 @@ def _fetch_submission(submission_id: str) -> dict:
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "select status, total_score from submissions where id = %s", (submission_id,)
+                "select status, total_score, student_name, name_flagged "
+                "from submissions where id = %s",
+                (submission_id,),
             )
-            status, total_score = cur.fetchone()
+            status, total_score, student_name, name_flagged = cur.fetchone()
             cur.execute(
                 "select question_no, detected_option, confidence, flagged, correct, score, id "
                 "from answers where submission_id = %s order by question_no",
@@ -206,12 +208,19 @@ def _fetch_submission(submission_id: str) -> dict:
             )
             cols = [c.name for c in cur.description]
             answers = [dict(zip(cols, row)) for row in cur.fetchall()]
-    return {"status": status, "total_score": total_score, "answers": answers}
+    return {
+        "status": status,
+        "total_score": total_score,
+        "student_name": student_name,
+        "name_flagged": name_flagged,
+        "answers": answers,
+    }
 
 
 def test_scan_all_correct_finalizes_with_correct_db_state(seeded_quiz):
     template = load_template()
     page_rgb = _render_and_rasterize(seeded_quiz)
+    write_name_on_page(page_rgb, template, "JOHN SMITH", dpi=DPI)
 
     for row_index, qid in enumerate(seeded_quiz["question_order"]):
         shuffled_pos = _correct_shuffled_position(seeded_quiz, qid)
@@ -228,6 +237,8 @@ def test_scan_all_correct_finalizes_with_correct_db_state(seeded_quiz):
     assert body["status"] == "finalized"
     assert body["total_score"] == 4.0
     assert body["flagged_question_numbers"] == []
+    assert body["name_flagged"] is False
+    assert "SMITH" in body["student_name"].upper()
 
     db_state = _fetch_submission(body["submission_id"])
     assert db_state["status"] == "finalized"
@@ -245,6 +256,7 @@ def _scan_with_one_multi_mark(seeded_quiz) -> tuple[dict, int]:
     question number expected to be the sole flagged answer."""
     template = load_template()
     page_rgb = _render_and_rasterize(seeded_quiz)
+    write_name_on_page(page_rgb, template, "JANE DOE", dpi=DPI)
 
     for row_index, qid in enumerate(seeded_quiz["question_order"]):
         shuffled_pos = _correct_shuffled_position(seeded_quiz, qid)
@@ -398,3 +410,85 @@ def test_get_submissions_needs_review_lists_flagged_submission(seeded_quiz):
     response_finalized = client.get("/submissions", params={"status": "finalized"})
     assert response_finalized.status_code == 200
     assert submission_id not in [row["id"] for row in response_finalized.json()]
+
+
+# ---- student-name detection DoD ---------------------------------------------
+
+
+def test_scan_blank_name_needs_review_even_with_all_correct_answers(seeded_quiz):
+    """The name confidence gate is independent of the answer confidence gate:
+    a submission with every answer correctly, unambiguously marked must still
+    route to review if the name field was left blank/illegible."""
+    template = load_template()
+    page_rgb = _render_and_rasterize(seeded_quiz)
+    # deliberately no write_name_on_page call - name field stays blank.
+
+    for row_index, qid in enumerate(seeded_quiz["question_order"]):
+        shuffled_pos = _correct_shuffled_position(seeded_quiz, qid)
+        _mark_bubble_filled(page_rgb, template, row_index, shuffled_pos)
+
+    response = client.post(
+        "/scan", files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")}
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["name_flagged"] is True
+    assert body["status"] == "needs_review"
+    assert body["flagged_question_numbers"] == [], "no answer should be flagged, only the name"
+
+    db_state = _fetch_submission(body["submission_id"])
+    assert db_state["status"] == "needs_review"
+    assert db_state["name_flagged"] is True
+    assert all(not a["flagged"] for a in db_state["answers"])
+
+
+def test_professor_name_correction_finalizes_a_submission_flagged_only_for_name(seeded_quiz):
+    template = load_template()
+    page_rgb = _render_and_rasterize(seeded_quiz)
+    # blank name field -> name_flagged, even though every answer is correct.
+
+    for row_index, qid in enumerate(seeded_quiz["question_order"]):
+        shuffled_pos = _correct_shuffled_position(seeded_quiz, qid)
+        _mark_bubble_filled(page_rgb, template, row_index, shuffled_pos)
+
+    scan_response = client.post(
+        "/scan", files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")}
+    )
+    assert scan_response.status_code == 201, scan_response.text
+    submission_id = scan_response.json()["submission_id"]
+    assert scan_response.json()["status"] == "needs_review"
+
+    response = client.patch(
+        f"/submissions/{submission_id}/name",
+        json={"student_name": "Corrected Name"},
+        headers=auth_headers(seeded_quiz["token"]),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["student_name"] == "Corrected Name"
+    assert body["name_flagged"] is False
+    assert body["status"] == "finalized"
+    assert body["total_score"] == 4.0
+
+    db_state = _fetch_submission(submission_id)
+    assert db_state["status"] == "finalized"
+    assert db_state["student_name"] == "Corrected Name"
+    assert db_state["name_flagged"] is False
+
+
+def test_professor_name_correction_requires_owning_professors_token(seeded_quiz):
+    body, _ = _scan_with_one_multi_mark(seeded_quiz)
+    submission_id = body["submission_id"]
+
+    other_email = f"other-prof-{uuid.uuid4().hex[:8]}@example.com"
+    _, other_token = create_auth_user_and_token(other_email)
+
+    response = client.patch(
+        f"/submissions/{submission_id}/name",
+        json={"student_name": "Someone Else"},
+        headers=auth_headers(other_token),
+    )
+
+    assert response.status_code == 404

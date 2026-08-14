@@ -9,6 +9,7 @@ import { Select } from "@/components/Select";
 import { Button } from "@/components/Button";
 import { Alert } from "@/components/Alert";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Bubble } from "@/components/Bubble";
 
 type StatusFilter = "all" | SubmissionStatus;
 type SortKey = "created_at" | "status";
@@ -111,7 +112,12 @@ export default function ResultsDashboardPage({ params }: { params: Promise<{ id:
                 data-testid="submission-row"
                 data-status={submission.status}
               >
-                <td className="py-2 pr-4">{submission.student_id ?? "—"}</td>
+                <td className="py-2 pr-4">
+                  <span className="inline-flex items-center gap-2">
+                    {submission.name_flagged && <Bubble tone="flag" size={7} />}
+                    {submission.student_name ?? submission.student_id ?? "—"}
+                  </span>
+                </td>
                 <td className="py-2 pr-4 font-mono">
                   {submission.total_score !== null ? submission.total_score : "—"}
                 </td>

@@ -2,10 +2,11 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { correctAnswer, getSubmission } from "@/lib/api/client";
+import { correctAnswer, correctName, getSubmission } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/supabase/client";
 import type { SubmissionDetail } from "@/lib/api/types";
 import { Select } from "@/components/Select";
+import { Field } from "@/components/Field";
 import { Button } from "@/components/Button";
 import { Alert } from "@/components/Alert";
 import { Bubble } from "@/components/Bubble";
@@ -23,18 +24,40 @@ export default function SubmissionReviewPage({
   const [error, setError] = useState<string | null>(null);
   const [selections, setSelections] = useState<Record<string, string>>({});
   const [savingAnswerId, setSavingAnswerId] = useState<string | null>(null);
+  const [nameInput, setNameInput] = useState("");
+  const [savingName, setSavingName] = useState(false);
 
   useEffect(() => {
     let ignore = false;
     (async () => {
       const token = await getAccessToken();
       const loaded = await getSubmission(submissionId, token);
-      if (!ignore) setSubmission(loaded);
+      if (!ignore) {
+        setSubmission(loaded);
+        setNameInput(loaded.student_name ?? "");
+      }
     })().catch(() => setError("Could not load this submission."));
     return () => {
       ignore = true;
     };
   }, [submissionId]);
+
+  async function handleSaveName() {
+    if (!nameInput.trim()) return;
+
+    setSavingName(true);
+    setError(null);
+    try {
+      const token = await getAccessToken();
+      const updated = await correctName(submissionId, nameInput, token);
+      setSubmission(updated);
+      setNameInput(updated.student_name ?? "");
+    } catch {
+      setError("Could not save the name correction. Please try again.");
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   async function handleSave(answerId: string) {
     const correctOption = selections[answerId];
@@ -75,7 +98,12 @@ export default function SubmissionReviewPage({
           Submission review
         </h1>
         <p className="text-sm text-ink-soft">
-          Student: {submission.student_id ?? "—"} · Status:{" "}
+          Student:{" "}
+          <span className="inline-flex items-center gap-2">
+            {submission.name_flagged && <Bubble tone="flag" size={7} />}
+            {submission.student_name ?? submission.student_id ?? "—"}
+          </span>{" "}
+          · Status:{" "}
           <span data-testid="submission-status" className="inline-flex items-center gap-2 font-mono text-ink">
             <Bubble tone={statusTone} size={7} />
             {submission.status}
@@ -95,51 +123,90 @@ export default function SubmissionReviewPage({
           This submission is finalized. Nothing left to review.
         </p>
       ) : (
-        <div className="space-y-4" data-testid="flagged-answers">
-          {flaggedAnswers.map((answer) => (
+        <div className="space-y-4">
+          {submission.name_flagged && (
             <div
-              key={answer.id}
               className="space-y-3 rounded-sm border border-flag/40 bg-flag-soft p-4"
-              data-testid="flagged-answer"
-              data-question-no={answer.question_no}
+              data-testid="flagged-name"
             >
               <p className="flex items-center gap-2 text-sm font-medium text-ink">
                 <Bubble tone="flag" />
-                Question {answer.question_no}
+                Student name
               </p>
               <p className="text-sm text-ink-soft">
-                Detected: {answer.detected_option ?? "unclear"} (confidence{" "}
-                <span className="font-mono">{answer.confidence.toFixed(2)}</span>)
+                Detected: {submission.student_name || "unclear"}
+                {submission.name_confidence !== null && (
+                  <>
+                    {" "}
+                    (confidence{" "}
+                    <span className="font-mono">{submission.name_confidence.toFixed(1)}</span>)
+                  </>
+                )}
               </p>
-              <div className="flex items-center gap-3">
-                <Select
-                  label="Correct option"
-                  id={`correct-${answer.id}`}
-                  value={selections[answer.id] ?? ""}
-                  onChange={(e) =>
-                    setSelections((prev) => ({ ...prev, [answer.id]: e.target.value }))
-                  }
-                  wrapperClassName="flex items-center gap-2"
-                >
-                  <option value="" disabled>
-                    Choose…
-                  </option>
-                  {OPTIONS.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                </Select>
+              <div className="flex items-end gap-3">
+                <Field
+                  label="Correct name"
+                  id="student-name-correction"
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                />
                 <Button
                   type="button"
-                  disabled={!selections[answer.id] || savingAnswerId === answer.id}
-                  onClick={() => handleSave(answer.id)}
+                  disabled={!nameInput.trim() || savingName}
+                  onClick={handleSaveName}
                 >
                   Save
                 </Button>
               </div>
             </div>
-          ))}
+          )}
+
+          <div className="space-y-4" data-testid="flagged-answers">
+            {flaggedAnswers.map((answer) => (
+              <div
+                key={answer.id}
+                className="space-y-3 rounded-sm border border-flag/40 bg-flag-soft p-4"
+                data-testid="flagged-answer"
+                data-question-no={answer.question_no}
+              >
+                <p className="flex items-center gap-2 text-sm font-medium text-ink">
+                  <Bubble tone="flag" />
+                  Question {answer.question_no}
+                </p>
+                <p className="text-sm text-ink-soft">
+                  Detected: {answer.detected_option ?? "unclear"} (confidence{" "}
+                  <span className="font-mono">{answer.confidence.toFixed(2)}</span>)
+                </p>
+                <div className="flex items-center gap-3">
+                  <Select
+                    label="Correct option"
+                    id={`correct-${answer.id}`}
+                    value={selections[answer.id] ?? ""}
+                    onChange={(e) =>
+                      setSelections((prev) => ({ ...prev, [answer.id]: e.target.value }))
+                    }
+                    wrapperClassName="flex items-center gap-2"
+                  >
+                    <option value="" disabled>
+                      Choose…
+                    </option>
+                    {OPTIONS.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button
+                    type="button"
+                    disabled={!selections[answer.id] || savingAnswerId === answer.id}
+                    onClick={() => handleSave(answer.id)}
+                  >
+                    Save
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

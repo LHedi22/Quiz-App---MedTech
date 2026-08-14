@@ -38,6 +38,9 @@ export interface SubmissionSummary {
   id: string;
   version_id: string;
   student_id: string | null;
+  student_name: string | null;
+  name_confidence: number | null;
+  name_flagged: boolean;
   total_score: number | null;
   status: SubmissionStatus;
   created_at: string;

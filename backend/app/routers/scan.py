@@ -26,6 +26,7 @@ from app.db import get_connection
 from app.ml.omr.align import align_page
 from app.ml.omr.classify import classify_bubble
 from app.ml.omr.extract import extract_bubble_crops
+from app.ml.omr.name_ocr import detect_name
 from app.ml.omr.qr_decode import decode_qr_from_page
 from app.models.scoring import DetectedAnswer
 from app.services import submissions as submissions_service
@@ -102,15 +103,18 @@ async def scan_submission(file: UploadFile, student_id: str | None = None) -> di
 
         detected_answers = _detect_answers_on_page(alignment.warped_image, template, num_questions)
         result = translate_and_score(lookup, detected_answers)
+        name_result = detect_name(alignment.warped_image, template, dpi=DPI)
 
-        submission_id = submissions_service.create_submission(
-            conn, lookup.version.id, result, student_id
+        submission = submissions_service.create_submission(
+            conn, lookup.version.id, result, name_result, student_id
         )
 
     return {
-        "submission_id": str(submission_id),
-        "status": result.status,
-        "total_score": result.total_score,
+        "submission_id": str(submission.id),
+        "status": submission.status,
+        "total_score": submission.total_score,
+        "student_name": submission.student_name,
+        "name_flagged": submission.name_flagged,
         "flagged_question_numbers": sorted(a.question_no for a in result.answers if a.flagged),
     }
 
@@ -182,4 +186,21 @@ async def correct_answer(
         )
     if updated is None:
         raise HTTPException(status_code=404, detail="answer not found for this submission")
+    return _serialize_submission_detail(updated)
+
+
+@router.patch("/submissions/{submission_id}/name")
+async def correct_name(
+    submission_id: UUID,
+    student_name: str = Body(embed=True),
+    user: AuthUser = Depends(get_current_user),
+) -> dict:
+    with get_connection() as conn:
+        ensure_user_row(conn, user)
+        _require_submission_owner(conn, submission_id, user)
+        updated = submissions_service.apply_name_correction(
+            conn, submission_id, student_name.strip()
+        )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="submission not found")
     return _serialize_submission_detail(updated)

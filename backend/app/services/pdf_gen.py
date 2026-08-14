@@ -71,6 +71,16 @@ def _draw_header(
     )
 
 
+def _draw_name_field(c: canvas.Canvas, template: dict) -> None:
+    """Ruled line + 'Name:' label for the student to handwrite their name.
+    Page 1 only - see name_field's _comment in pdf_template.json for why."""
+    field = template["name_field"]
+    c.setFont("Helvetica-Bold", field["label_font_size"])
+    c.drawString(field["label_x_pt"], field["label_y_pt"], field["label"])
+    c.setLineWidth(1)
+    c.line(field["line_x0_pt"], field["line_y_pt"], field["line_x1_pt"], field["line_y_pt"])
+
+
 def _draw_qr(c: canvas.Canvas, template: dict, qr_png: bytes) -> None:
     box = template["qr_box"]
     image = ImageReader(io.BytesIO(qr_png))
@@ -137,6 +147,8 @@ def render_version_pdf(
 
     for page_index, page_questions in enumerate(pages):
         _draw_header(c, template, quiz_title, version.version_number, page_index + 1, len(pages))
+        if page_index == 0:
+            _draw_name_field(c, template)
         _draw_qr(c, template, qr_png)
         _draw_fiducials(c, template)
         for row_index, question in enumerate(page_questions):

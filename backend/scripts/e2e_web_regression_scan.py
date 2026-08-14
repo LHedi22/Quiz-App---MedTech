@@ -59,7 +59,7 @@ from app.services.geometry import (  # noqa: E402
     qr_box_pixel_rect,
 )
 from app.services.pdf_gen import load_template  # noqa: E402
-from tests.omr_test_utils import render_page_rgb  # noqa: E402
+from tests.omr_test_utils import render_page_rgb, write_name_on_page  # noqa: E402
 
 # Same env-var-overridable local-dev defaults as tests/test_quizzes_endpoint.py
 # and scripts/e2e_smoke_test.py - not a real secret, Supabase's own published
@@ -210,6 +210,22 @@ def _scan_from_pdf_bytes(
     mapping = _fetch_version_mapping(version_id)
     template = load_template()
     page_rgb = render_page_rgb(pdf_bytes, dpi=DPI)
+    # A blank name field is its own confidence-gate flag (name_flagged) that
+    # would route every scan here to needs_review regardless of the answer
+    # marks below - specs asserting "finalized" after a clean/corrected scan
+    # need a legible name written first, same as backend/tests/test_e2e_*.
+    # Derived from student_id (title-cased, hyphens/underscores -> spaces)
+    # rather than a fixed string: the results dashboard now shows
+    # student_name ahead of student_id (see web/app/(app)/results/[id]/
+    # page.tsx), so callers that identify a scanned row by its student_id
+    # text (e.g. web/e2e/full-happy-path.spec.ts) need that same text to
+    # actually appear on screen, and a hand-writable name needs to stay
+    # OCR-friendly (Tesseract reads spaced words far more reliably than a
+    # raw "student-id-style" hyphenated slug).
+    display_name = (
+        (student_id or "Web Regression Student").replace("-", " ").replace("_", " ").title()
+    )
+    write_name_on_page(page_rgb, template, display_name, dpi=DPI)
 
     if mode == "qr-unreadable":
         x0, y0, x1, y1 = qr_box_pixel_rect(template, DPI)
