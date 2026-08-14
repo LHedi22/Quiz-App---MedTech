@@ -1,8 +1,21 @@
 import { execFileSync } from "child_process";
+import { existsSync } from "fs";
 import path from "path";
 
 const BACKEND_DIR = path.resolve(__dirname, "..", "..", "backend");
-const PYTHON = path.join(BACKEND_DIR, ".venv", "Scripts", "python.exe");
+const VENV_PYTHON = path.join(
+  BACKEND_DIR,
+  ".venv",
+  process.platform === "win32" ? "Scripts" : "bin",
+  process.platform === "win32" ? "python.exe" : "python",
+);
+// CI installs backend deps into the runner's system/user Python rather than a
+// project-local .venv (no such directory exists there) - fall back to
+// PATH's python3/python in that case rather than assuming a venv always
+// exists, which only held on this dev machine's own local setup.
+const PYTHON = existsSync(VENV_PYTHON)
+  ? VENV_PYTHON
+  : process.env.PYTHON_BIN || (process.platform === "win32" ? "python" : "python3");
 const SCRIPT = path.join(BACKEND_DIR, "scripts", "e2e_web_regression_scan.py");
 
 /** Shells out to backend/scripts/e2e_web_regression_scan.py - the one step

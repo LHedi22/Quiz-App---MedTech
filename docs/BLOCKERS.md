@@ -66,7 +66,91 @@ before continuing 7.2/7.3, (b) proceed with 7.2/7.3 against the routes
 as-is and track this as a separate security follow-up, or (c) something
 else. Not proceeding further into 7.2/7.3 until this is answered.
 
-## Phase 7b.6 — CI regression: no GitHub remote configured
+## Phase 7b.6 — CI regression: no GitHub remote configured [RESOLVED 2026-08-14]
+
+**Resolution:** user created a GitHub remote (`LHedi22/Quiz-App---MedTech`)
+and pushed. This produced the repo's first-ever real CI run - which
+immediately failed all 3 jobs, for reasons this section's own prior text
+had already flagged as the one thing local re-running couldn't substitute
+for ("GitHub Actions' own runner environment behaving identically to this
+local one"). It did not: every job in this project's test suite is a real
+integration test against a live Supabase + backend stack (deliberately, no
+mocks anywhere - see `docs/PROGRESS.md` throughout), and the workflow had
+never actually provisioned one inside a CI runner; this was flagged as a
+known gap as far back as Phase 1 ("wiring them into CI... is left as a
+follow-up, not required by this phase's DoD") and never picked up until
+now.
+
+Diagnosed with real logs (`gh run view --log-failed`, after the user
+authenticated `gh auth login` - the anonymous public-repo API 403s on log
+downloads even though run/job metadata is readable without auth) rather
+than guessed:
+- **backend**: `ImportError: Unable to find zbar shared library` -
+  `pyzbar` needs the native `libzbar0` package, absent on `ubuntu-latest`.
+- **web**: `Your project's URL and Key are required to create a Supabase
+  client!` - no `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  in the CI environment.
+- **mobile**: 15/17 passed; the 2 failures were the real-Supabase-Auth
+  tests (`login_flow_test.dart`), same root cause as web.
+
+Presented the user a genuine architecture choice rather than picking
+unilaterally (backend-contract-gap-style decision, same spirit as CLAUDE.md
+Section 2.7's rule for the web migration): spin up an ephemeral local
+Supabase stack per CI run via `supabase start`, or point CI at the hosted
+"Quiz App - MedTech" project via GitHub Secrets. **User chose the ephemeral
+local stack** - no secrets needed, matches this project's own "real stack,
+no mocks" philosophy exactly, and each run is fully isolated.
+
+Also caught, while wiring this up, a real cross-platform bug unrelated to
+Supabase provisioning that would have broken `web` CI regardless:
+`web/e2e/pythonRegression.ts` hardcoded a Windows-only venv path
+(`.venv/Scripts/python.exe`) to shell out to the one backend script with no
+web UI equivalent - fixed to resolve the platform-correct venv path when
+one exists, falling back to `PYTHON_BIN`/`python3` on PATH otherwise (CI
+installs backend deps into the runner's system Python, not a project-local
+`.venv`).
+
+Rewrote `.github/workflows/ci.yml`: all 3 jobs now install `libzbar0`,
+install the Supabase CLI (`supabase/setup-cli`, pinned to the v3.0.0 tag's
+commit SHA, matching this repo's existing SHA-pinning convention), run
+`supabase start --exclude analytics,edge-runtime,functions,imgproxy,
+inbucket,realtime,studio,vector` (this project uses none of those - cuts
+image-pull time without dropping anything the tests exercise, since
+`db`/`kong`/`meta`/`rest`/`storage` all stay), and apply
+`backend/migrations/apply_migrations.py`. The `mobile`/`web` jobs
+additionally boot `uvicorn app.main:app` in the background (`nohup ... &
+disown`, health-polled via `curl` before continuing) since both need a live
+backend, not just Supabase - mobile's Phase 8.4 batch-summary test creates
+a quiz via raw HTTP, and most `web` specs go through `lib/api/client.ts`.
+The fixed local-dev demo Supabase keys (`supabase start`'s well-known
+default JWTs for a project with no custom `jwt_secret` - confirmed by
+grepping `backend/supabase/config.toml` for one and finding none) are
+reused as workflow-level `env:` values - not real secrets, already
+hardcoded as the same fallback defaults in
+`backend/tests/test_rls_cross_user.py`, `mobile/lib/config.dart`, and
+`web/.env.local.example`'s local dev values, so no GitHub Secrets are
+needed at all for this approach. `mobile`'s `flutter test` step passes
+`--dart-define` explicitly rather than relying on `lib/config.dart`'s
+defaults matching by coincidence, since Dart's `String.fromEnvironment`
+only reads compile-time `--dart-define` flags, not OS environment
+variables (an `env:` block on that step would have been silently
+ineffective - caught before pushing, not after another failed run).
+
+Verified before pushing (not assumed): YAML re-parsed valid; `npm run
+lint` clean after the TS fix; a real Playwright spec that exercises
+`pythonRegression.ts` (`e2e/cross-client-consistency.spec.ts`) still
+passes locally, confirming the platform-detection fallback didn't regress
+the Windows path this dev machine actually uses; `app.main:app`/`/health`
+confirmed to match the uvicorn command and health-poll target used in the
+new workflow steps. What's *not* verified yet: whether this passes for
+real inside an actual `ubuntu-latest` runner - the next CI run after this
+commit is pushed is that verification, and per CLAUDE.md's own
+"objective achievement loop," failures there get fixed and re-pushed
+rather than assumed away.
+
+---
+
+**Original blocker record, preserved below:**
 
 **What's blocked:** the DoD's literal "a single CI run on a clean branch
 shows all three jobs (backend, web/Next.js, mobile) passing" - this
