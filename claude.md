@@ -18,18 +18,26 @@ This is slow and error-prone.
    question order AND answer-option order.
 3. Each version gets a printable PDF with a QR code encoding its version ID.
 4. Professor prints, distributes, administers the exam on paper.
-5. Professor scans each completed answer sheet with the mobile app.
+5. Professor scans each completed answer sheet — from the responsive web app (primary,
+   any device with a camera and a live connection) or the Flutter mobile app (optional,
+   for offline/poor-connectivity batch scanning).
 6. The app decodes the QR code, looks up that version's mapping, detects filled bubbles,
    translates positions back to canonical questions, and scores against the master key.
 7. Low-confidence detections (unclear marks, unreadable QR, multiple marks) are flagged
    for professor review on the web app. Everything else finalizes automatically.
 
 **Two clients, one backend:**
-- **Web app** — professor's control center, built in **Next.js (TypeScript)**. Quiz
-  creation, Excel upload, version generation, PDF download, results dashboard,
-  flagged-answer review.
-- **Mobile app** — scanning only, built in **Flutter**. Camera-first, batch-scan a stack
-  of papers fast, queue results, sync to backend.
+- **Web app** — professor's control center and **primary client for every workflow,
+  including scanning**, built in **Next.js (TypeScript)**. Quiz creation, Excel upload,
+  version generation, PDF download, results dashboard, flagged-answer review, and (as of
+  Phase 7c) a responsive `/scan` camera-capture screen. Requires live connectivity to
+  submit a scan — see the Phase 7c note below for why.
+- **Mobile app** — **optional/legacy**, scanning only, built in **Flutter**. Still fully
+  supported, still owns offline batch-scan + local queue + background-sync behavior
+  (Phase 8), and is the client to reach for when a venue has poor or no connectivity. It
+  is no longer the *only* way to scan, but nothing about it was removed or deprecated.
+- Both clients call the exact same `POST /scan` endpoint and share the same backend/data
+  model, unchanged by either client's existence — see Section 7's backend-contract rule.
 
 > **Migration note (post-launch pivot):** the web app was originally built in Flutter web
 > and was migrated to Next.js to decouple web iteration speed from the mobile release
@@ -37,6 +45,18 @@ This is slow and error-prone.
 > `07_web_app_nextjs.md` (build) and `07b_web_migration_testing.md` (regression) for the
 > migration itself. Any future references to "the web app" in this file describe the
 > current Next.js implementation, not the retired Flutter-web one.
+
+> **Phase 7c note (web absorbs scanning, mobile stays optional):** `07c_web_responsive_scanning.md`
+> made the web app fully responsive and added browser-camera scanning
+> (`getUserMedia` → local blur/QR pre-check ported from mobile's `ImageQualityChecker` →
+> `POST /scan`), making it the primary client end-to-end. The web scanning path has **no
+> offline queue** — capture is gated on live connectivity (`navigator.onLine` + a backend
+> health ping) and a failed submission is marked "not submitted — retry," never silently
+> dropped or counted as processed. This was a deliberate scope decision, not an oversight:
+> iOS Safari doesn't support the Background Sync API and evicts IndexedDB unpredictably
+> outside an installed PWA, so a browser-based offline queue can't meet the mobile app's
+> reliability bar. Professors scanning in poor-connectivity venues should use the Flutter
+> app instead, which keeps its Phase 8 offline-queue/sync behavior entirely unchanged.
 
 ## 2. Non-negotiable rules
 
@@ -273,7 +293,10 @@ stop and re-check against Section 2.
 
 Work through these in order. Do not skip ahead even if a later phase seems easy. Note
 `7b`, inserted specifically to validate the Flutter→Next.js web migration before mobile
-work resumes.
+work resumes, and `7c`, inserted after it to make the web app responsive and give it its
+own scanning flow — see the Phase 7c note in Section 1. Phase 8 (mobile) is now
+**optional/legacy**: its own Phase DoD stands unchanged, it just isn't the only way to
+scan anymore.
 
 | #  | File                              | Phase                                                             |
 |----|-------------------------------------|--------------------------------------------------------------------|
@@ -286,7 +309,8 @@ work resumes.
 | 6  | `06_scan_grade_service.md`          | Scan pipeline: decode → align → detect → translate → score → confidence gate |
 | 7  | `07_web_app_nextjs.md`              | **Next.js web app**: professor dashboard (migrated from Flutter web) |
 | 7b | `07b_web_migration_testing.md`      | **Web migration regression & full-system verification**            |
-| 8  | `08_mobile_app.md`                  | Flutter mobile: scanning-only flow                                 |
+| 7c | `07c_web_responsive_scanning.md`    | **Responsive web app absorbs scanning** (becomes the primary client) |
+| 8  | `08_mobile_app.md`                  | Flutter mobile: scanning-only flow — **optional/legacy, unchanged** |
 | 9  | `09_integration_testing.md`         | End-to-end tests across both clients + backend                     |
 | 10 | `10_deployment.md`                  | Cloud Run deploy, Supabase prod config, release                    |
 
