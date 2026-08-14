@@ -143,7 +143,7 @@ export default function SubmissionReviewPage({
                   </>
                 )}
               </p>
-              <div className="flex items-end gap-3">
+              <div className="flex flex-wrap items-end gap-3">
                 <Field
                   label="Correct name"
                   id="student-name-correction"
@@ -177,7 +177,7 @@ export default function SubmissionReviewPage({
                   Detected: {answer.detected_option ?? "unclear"} (confidence{" "}
                   <span className="font-mono">{answer.confidence.toFixed(2)}</span>)
                 </p>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <Select
                     label="Correct option"
                     id={`correct-${answer.id}`}

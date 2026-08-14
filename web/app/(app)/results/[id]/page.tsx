@@ -94,51 +94,93 @@ export default function ResultsDashboardPage({ params }: { params: Promise<{ id:
           No submissions match this filter.
         </p>
       ) : (
-        <table className="w-full border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-sand text-ink-soft">
-              <th className="py-2 pr-4 font-medium">Student</th>
-              <th className="py-2 pr-4 font-medium">Score</th>
-              <th className="py-2 pr-4 font-medium">Status</th>
-              <th className="py-2 pr-4 font-medium">Submitted</th>
-              <th className="py-2 pr-4"></th>
-            </tr>
-          </thead>
-          <tbody data-testid="submissions-table-body">
+        <>
+          {/* Desktop/tablet: table. Same `visible` array as the mobile card
+              list below, so the two layouts can never drift out of sync. */}
+          <table className="hidden w-full border-collapse text-left text-sm md:table">
+            <thead>
+              <tr className="border-b border-sand text-ink-soft">
+                <th className="py-2 pr-4 font-medium">Student</th>
+                <th className="py-2 pr-4 font-medium">Score</th>
+                <th className="py-2 pr-4 font-medium">Status</th>
+                <th className="py-2 pr-4 font-medium">Submitted</th>
+                <th className="py-2 pr-4"></th>
+              </tr>
+            </thead>
+            <tbody data-testid="submissions-table-body">
+              {visible.map((submission) => (
+                <tr
+                  key={submission.id}
+                  className="border-b border-sand/60"
+                  data-testid="submission-row"
+                  data-status={submission.status}
+                >
+                  <td className="py-2 pr-4">
+                    <span className="inline-flex items-center gap-2">
+                      {submission.name_flagged && <Bubble tone="flag" size={7} />}
+                      {submission.student_name ?? submission.student_id ?? "—"}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4 font-mono" data-field="score">
+                    {submission.total_score !== null ? submission.total_score : "—"}
+                  </td>
+                  <td className="py-2 pr-4">
+                    <StatusBadge status={submission.status} />
+                  </td>
+                  <td className="py-2 pr-4 text-ink-soft" data-field="created_at">
+                    {new Date(submission.created_at).toLocaleString()}
+                  </td>
+                  <td className="py-2 pr-4">
+                    <Link
+                      href={`/submissions/${submission.id}`}
+                      className="text-olive underline underline-offset-2"
+                    >
+                      {submission.status === "needs_review" ? "Review" : "View"}
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* Mobile: stacked cards carrying the exact same fields as the
+              table above, not a subset - see Subtask 7c.1 DoD. */}
+          <ul className="space-y-3 md:hidden" data-testid="submissions-card-list">
             {visible.map((submission) => (
-              <tr
+              <li
                 key={submission.id}
-                className="border-b border-sand/60"
-                data-testid="submission-row"
+                className="space-y-2 rounded-sm border border-sand bg-paper-raised p-4"
+                data-testid="submission-card"
                 data-status={submission.status}
               >
-                <td className="py-2 pr-4">
-                  <span className="inline-flex items-center gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2 font-medium text-ink">
                     {submission.name_flagged && <Bubble tone="flag" size={7} />}
                     {submission.student_name ?? submission.student_id ?? "—"}
                   </span>
-                </td>
-                <td className="py-2 pr-4 font-mono">
-                  {submission.total_score !== null ? submission.total_score : "—"}
-                </td>
-                <td className="py-2 pr-4">
                   <StatusBadge status={submission.status} />
-                </td>
-                <td className="py-2 pr-4 text-ink-soft">
-                  {new Date(submission.created_at).toLocaleString()}
-                </td>
-                <td className="py-2 pr-4">
-                  <Link
-                    href={`/submissions/${submission.id}`}
-                    className="text-olive underline underline-offset-2"
-                  >
-                    {submission.status === "needs_review" ? "Review" : "View"}
-                  </Link>
-                </td>
-              </tr>
+                </div>
+                <div className="flex items-center justify-between text-sm text-ink-soft">
+                  <span>
+                    Score:{" "}
+                    <span className="font-mono text-ink" data-field="score">
+                      {submission.total_score !== null ? submission.total_score : "—"}
+                    </span>
+                  </span>
+                  <span data-field="created_at">
+                    {new Date(submission.created_at).toLocaleString()}
+                  </span>
+                </div>
+                <Link
+                  href={`/submissions/${submission.id}`}
+                  className="inline-block text-sm text-olive underline underline-offset-2"
+                >
+                  {submission.status === "needs_review" ? "Review" : "View"}
+                </Link>
+              </li>
             ))}
-          </tbody>
-        </table>
+          </ul>
+        </>
       )}
     </div>
   );

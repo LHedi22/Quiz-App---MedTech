@@ -63,9 +63,13 @@ test("results dashboard reflects a seeded set of mixed-status submissions exactl
   const rowsLocator = page.getByTestId("submission-row");
   await expect(rowsLocator).toHaveCount(3);
 
-  await expect(page.getByText("student-finalized")).toBeVisible();
-  await expect(page.getByText("student-needs-review")).toBeVisible();
-  await expect(page.getByText("student-pending")).toBeVisible();
+  // Scoped to the desktop table body: Subtask 7c.1 added a mobile card view
+  // of the same data, so an unscoped page-wide text query now matches both
+  // representations (one CSS-hidden at this viewport, but still in the DOM).
+  const tableBody = page.getByTestId("submissions-table-body");
+  await expect(tableBody.getByText("student-finalized")).toBeVisible();
+  await expect(tableBody.getByText("student-needs-review")).toBeVisible();
+  await expect(tableBody.getByText("student-pending")).toBeVisible();
 
   const finalizedRow = rowsLocator.filter({ has: page.getByText("student-finalized") });
   await expect(finalizedRow).toHaveAttribute("data-status", "finalized");
@@ -77,8 +81,8 @@ test("results dashboard reflects a seeded set of mixed-status submissions exactl
 
   await page.getByLabel("Status").selectOption("needs_review");
   await expect(rowsLocator).toHaveCount(1);
-  await expect(page.getByText("student-needs-review")).toBeVisible();
-  await expect(page.getByText("student-finalized")).not.toBeVisible();
+  await expect(tableBody.getByText("student-needs-review")).toBeVisible();
+  await expect(tableBody.getByText("student-finalized")).not.toBeVisible();
 
   await page.getByLabel("Status").selectOption("finalized");
   await expect(rowsLocator).toHaveCount(1);

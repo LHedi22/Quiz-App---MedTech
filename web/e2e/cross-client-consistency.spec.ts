@@ -43,9 +43,13 @@ test("a scanned submission appears correctly in the dashboard, and a web correct
   // web/app/(app)/results/[id]/page.tsx) - scripts/e2e_web_regression_scan.py
   // hand-writes a name derived from the student_id it's given
   // ("cross-client-student" -> "Cross Client Student").
-  await expect(page.getByText("Cross Client Student")).toBeVisible();
+  // Scoped to the desktop table row specifically: Subtask 7c.1 added a
+  // mobile card view of the same data (web/app/(app)/results/[id]/page.tsx),
+  // so an unscoped page-wide text/role query now matches both
+  // representations (one CSS-hidden at this viewport, but still in the DOM).
+  await expect(row.getByText("Cross Client Student")).toBeVisible();
 
-  await page.getByRole("link", { name: "Review" }).click();
+  await row.getByRole("link", { name: "Review" }).click();
   await expect(page).toHaveURL(new RegExp(`/submissions/${scanResult.submission_id}$`));
   await expect(page.getByText(`Question ${flaggedQuestionNo}`)).toBeVisible();
 
