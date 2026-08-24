@@ -138,6 +138,50 @@ def composite_page_in_frame(
     return frame, scale, float(x_offset), float(y_offset)
 
 
+def apply_keystone_warp(
+    image: np.ndarray, top_shrink_fraction: float, side_shrink_fraction: float = 0.0
+) -> tuple[np.ndarray, np.ndarray]:
+    """Warp `image` into a genuine trapezoidal (keystone) shape, simulating a
+    real oblique-angle camera photo of a flat page - unlike
+    `rotate_with_padding`, which only ever produces an affine (rotation)
+    transform, this uses a true 4-point perspective warp so the result
+    cannot be undone by anything less than a real homography (a similarity
+    transform - rotation + uniform scale + translation - has no way to
+    represent this).
+
+    `top_shrink_fraction` pulls the top-left/top-right corners inward
+    (toward the horizontal center) by that fraction of the image width,
+    simulating a camera looking slightly downward/upward at the page so its
+    far edge appears narrower than its near edge. `side_shrink_fraction`
+    optionally does the same vertically (pulling top-right/bottom-right
+    inward), for a two-axis keystone. Returns the warped image and the 3x3
+    forward homography used, so callers can map a known reference point into
+    the warped image's coordinate space the same way `forward_point` does
+    for `rotate_with_padding`."""
+    h, w = image.shape[:2]
+    src = np.array([[0, 0], [w, 0], [w, h], [0, h]], dtype=np.float32)
+    dx = w * top_shrink_fraction
+    dy = h * side_shrink_fraction
+    dst = np.array(
+        [
+            [dx, 0],
+            [w - dx, dy],
+            [w, h],
+            [0, h],
+        ],
+        dtype=np.float32,
+    )
+    matrix = cv2.getPerspectiveTransform(src, dst)
+    warped = cv2.warpPerspective(image, matrix, (w, h), borderValue=(255, 255, 255))
+    return warped, matrix
+
+
+def forward_point_perspective(matrix: np.ndarray, x: float, y: float) -> tuple[float, float]:
+    src = np.array([[[x, y]]], dtype=np.float32)
+    out = cv2.perspectiveTransform(src, matrix)[0][0]
+    return float(out[0]), float(out[1])
+
+
 def simulate_photo(image: np.ndarray, blur_ksize: int = 3, jpeg_quality: int = 70) -> np.ndarray:
     """Roughly approximate a phone-photo (vs. a clean digital render): a
     little blur plus lossy JPEG recompression."""

@@ -10,8 +10,10 @@ from app.ml.omr.align import align_page, expected_fiducial_pixels
 from app.services.geometry import bubble_center_pt, pdf_point_to_pixel
 from app.services.pdf_gen import load_template, render_version_pdf
 from tests.omr_test_utils import (
+    apply_keystone_warp,
     composite_page_in_frame,
     forward_point,
+    forward_point_perspective,
     make_version_for_render,
     render_page_rgb,
     rotate_with_padding,
@@ -92,6 +94,61 @@ def test_alignment_recovers_bubble_coordinates_when_page_is_a_fraction_of_a_larg
         assert error <= ALIGNMENT_TOLERANCE_PX, (
             f"bubble at pt=({x_pt},{y_pt}) recovered {error:.2f}px off "
             f"(tolerance {ALIGNMENT_TOLERANCE_PX}px) at page_width_fraction={page_width_fraction}"
+        )
+
+
+@pytest.mark.parametrize("top_shrink_fraction", [0.05, 0.1])
+def test_alignment_recovers_bubble_coordinates_under_genuine_keystone_perspective_distortion(
+    reference_page_rgb, top_shrink_fraction
+):
+    """Regression test for the real bug behind PROGRESS.md's Round 4 account:
+    a real oblique-angle camera photo produces genuine trapezoidal keystone
+    distortion, which a similarity transform (rotation + uniform scale +
+    translation) cannot represent - a photo's *correct* fiducial corners
+    would score a large, misleading residual under that model,
+    indistinguishable from an actually-wrong corner assignment. Unlike
+    `rotate_with_padding` (a pure affine transform, used by every other test
+    in this file), `apply_keystone_warp` produces a true 4-point perspective
+    warp - the only way to construct a test image a similarity transform
+    genuinely cannot undo.
+
+    `top_shrink_fraction=0.1` (the far edge at 80% of the near edge's width -
+    a clearly visible keystone) is the verified ceiling of what this
+    architecture reliably recovers, not an arbitrary round number: past
+    roughly 0.12, a real, *expected* geometric side effect of a strong
+    perspective warp takes over - even a marker sitting at a point the
+    homography leaves nominally unmoved (the bottom edge, here) has its own
+    *local* aspect ratio visibly distorted by the same transform (measured
+    live up to ~1.5:1, worse than a rotation ever produces), which fails the
+    ordinary per-candidate squareness filter in
+    `_all_squarish_blob_candidates` (`0.7 <= rw/rh <= 1.4`, unrelated to and
+    predating this fix) before the marker is ever considered a fiducial
+    candidate at all - not a scoring/residual problem this function's
+    checks could address. That angle is also steeper than a professor's
+    phone photo of a physical page realistically produces, and steep enough
+    that individual bubble marks would likely be too distorted to score
+    reliably even if alignment itself succeeded - so this is treated as a
+    documented capability boundary, not a bug to keep chasing."""
+    template = load_template()
+    warped, matrix = apply_keystone_warp(reference_page_rgb, top_shrink_fraction)
+
+    result = align_page(warped, template, dpi=DPI)
+    assert (
+        result.success
+    ), f"alignment failed at top_shrink_fraction={top_shrink_fraction}: {result.error}"
+
+    page_h = template["page_height_pt"]
+    for x_pt, y_pt in _sample_bubble_points_pt(template):
+        true_px = pdf_point_to_pixel(x_pt, y_pt, page_h, DPI)
+        warped_px = forward_point_perspective(matrix, *true_px)
+
+        src = np.array([[[warped_px[0], warped_px[1]]]], dtype=np.float32)
+        recovered_px = cv2.perspectiveTransform(src, result.homography)[0][0]
+
+        error = float(np.hypot(recovered_px[0] - true_px[0], recovered_px[1] - true_px[1]))
+        assert error <= ALIGNMENT_TOLERANCE_PX, (
+            f"bubble at pt=({x_pt},{y_pt}) recovered {error:.2f}px off "
+            f"(tolerance {ALIGNMENT_TOLERANCE_PX}px) at top_shrink_fraction={top_shrink_fraction}"
         )
 
 

@@ -18,8 +18,15 @@ def bubble_center_pt(template: dict, row_index: int, option_index: int) -> tuple
 
 
 def fiducial_positions_pt(template: dict) -> dict[str, tuple[float, float]]:
-    """Bottom-left corner (PDF points, origin bottom-left) of each of the 4
-    fiducial squares."""
+    """Bottom-left corner (PDF points, origin bottom-left) of each of the 5
+    fiducial squares: the 4 page corners plus one redundant marker
+    (`bottom_offset`) in the bottom margin band - see the
+    `fiducials._comment` in pdf_template.json for why the 5th marker exists,
+    and why it must sit off-center on *both* axes rather than at the
+    bottom edge's midpoint (a page-width-centered marker would lie exactly
+    on the rectangle's left-right mirror axis, unable to distinguish a
+    correct corner assignment from a left-right-mirrored wrong one - only
+    an off-axis point breaks every relabeling symmetry a rectangle has)."""
     fid = template["fiducials"]
     size = fid["size_pt"]
     margin = fid["margin_from_edge_pt"]
@@ -30,6 +37,7 @@ def fiducial_positions_pt(template: dict) -> dict[str, tuple[float, float]]:
         "top_right": (page_w - margin - size, page_h - margin - size),
         "bottom_left": (margin, margin),
         "bottom_right": (page_w - margin - size, margin),
+        "bottom_offset": (page_w / 3 - size / 2, margin),
     }
 
 
