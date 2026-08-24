@@ -110,9 +110,25 @@ def _all_squarish_blob_candidates(gray: np.ndarray) -> list[tuple[float, float, 
     image, regardless of absolute size - size filtering happens later, per
     scale hypothesis (`_candidates_at_scale`), so the expensive contour
     search itself runs exactly once regardless of how many hypotheses
-    `align_page` sweeps. Returns (cx, cy, area) triples."""
+    `align_page` sweeps. Returns (cx, cy, area) triples.
+
+    `RETR_LIST`, not `RETR_EXTERNAL`: confirmed live from an actual failed
+    real-camera scan (a dark-UI-heavy screenshot-viewer background) that
+    `RETR_EXTERNAL` (outermost contours only) found 9 total contours and 0
+    shape-plausible candidates in the whole frame - almost everything
+    merged into a handful of large blobs, hiding every genuinely separate
+    smaller shape (fiducials included) as invisible nested structure.
+    `RETR_LIST` on the identical image found 1155 contours and 23
+    shape-plausible candidates. No committed regression test reproduces
+    this exact mechanism (a directly-touching/merged blob, unlike this,
+    genuinely can't be un-merged by any retrieval mode - see PROGRESS.md's
+    scale-invariant-alignment entry for what was tried and ruled out); this
+    is real-world-evidence-backed rather than unit-test-backed, and the
+    full existing align.py suite staying green after this change confirms
+    it doesn't regress the scenarios that *are* covered.
+    """
     _, thresh = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 
     image_area = gray.shape[0] * gray.shape[1]
     candidates: list[tuple[float, float, float]] = []

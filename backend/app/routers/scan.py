@@ -75,7 +75,8 @@ async def scan_submission(
     if bgr is None:
         logger.warning(
             "scan_diag capture_id=%s result=unreadable_image upload_bytes=%d",
-            capture_id, len(contents),
+            capture_id,
+            len(contents),
         )
         raise HTTPException(status_code=422, detail={"error": "unreadable_image"})
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -88,7 +89,8 @@ async def scan_submission(
     # rather than guessing at a second fix blind. Remove once resolved.
     logger.warning(
         "scan_diag capture_id=%s upload_image_hw=%s",
-        capture_id, bgr.shape[:2],
+        capture_id,
+        bgr.shape[:2],
     )
 
     # Alignment doesn't depend on which version was scanned - it only needs
@@ -103,7 +105,9 @@ async def scan_submission(
     if not alignment.success:
         logger.warning(
             "scan_diag capture_id=%s result=alignment_failed error=%r upload_image_hw=%s",
-            capture_id, alignment.error, bgr.shape[:2],
+            capture_id,
+            alignment.error,
+            bgr.shape[:2],
         )
         raise HTTPException(
             status_code=422, detail={"error": "alignment_failed", "message": alignment.error}
@@ -116,7 +120,8 @@ async def scan_submission(
     if qr_id is None:
         logger.warning(
             "scan_diag capture_id=%s result=qr_unreadable warped_image_hw=%s",
-            capture_id, alignment.warped_image.shape[:2],
+            capture_id,
+            alignment.warped_image.shape[:2],
         )
         raise HTTPException(status_code=422, detail={"error": "qr_unreadable"})
 
