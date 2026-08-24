@@ -39,6 +39,23 @@ AREA_TOLERANCE = 0.35
 # 0.5 at 45 degrees). Circles land near pi/4 ~= 0.785 either way.
 MIN_EXTENT = 0.85
 
+# Absolute ceiling on `_best_corner_assignment`'s fit residual (sum of
+# squared per-corner errors in canonical destination-pixel space) below
+# which a 4-point assignment is trusted at all. Needed once candidate
+# search spans multiple scale hypotheses (`_scale_search_hypotheses`): with
+# only one fixed scale, `_best_corner_assignment` never had an absolute
+# quality gate - it always returned whichever 4-point combo fit best,
+# however bad - and got away with it only because a spurious "4th point"
+# rarely existed within that one narrow size window. Searching many scales
+# makes that bad case reachable (e.g. an occluded/missing real corner
+# substituted by some unrelated squarish blob at a size that happens to
+# pass a *different* hypothesis's tolerance). Empirically, legitimate fits
+# (correct rotation/scale, all 4 real corners present) score well under 1;
+# a genuinely wrong substitution scores in the millions - see the
+# calibration in PROGRESS.md's scale-invariant-alignment entry. 1000 keeps
+# an enormous margin on both sides.
+MAX_ACCEPTABLE_RESIDUAL = 1000.0
+
 
 @dataclass
 class AlignmentResult:
@@ -64,19 +81,48 @@ def expected_fiducial_pixels(template: dict, dpi: int) -> dict[str, tuple[float,
     }
 
 
-def _fiducial_candidates(gray: np.ndarray, expected_area_px: float) -> list[tuple[float, float]]:
-    """Locate blobs shaped/sized like a fiducial square anywhere in the image."""
+# A live camera photo's effective scale (how large the printed page appears
+# in pixels) is arbitrary - unlike a flatbed scan or this test suite's
+# digital PDF rasterizations, which are always exactly `dpi`'s scale, a
+# phone/webcam photo could show the page occupying anywhere from a small
+# fraction to nearly all of the frame, depending only on how far away it was
+# held. `align_page` sweeps this range of "as if scanned at this DPI"
+# hypotheses when searching for fiducial candidates, rather than assuming
+# the upload already matches `dpi` (confirmed live: real captures failed
+# with "found 0 fiducial markers" at every resolution/rotation/blur fix
+# short of this one - see PROGRESS.md). Log-spaced so adjacent hypotheses'
+# +-AREA_TOLERANCE windows on *linear* size fully overlap - the per-step
+# ratio (~1.26x) stays under the tolerance window's own ratio (~1.44x, from
+# sqrt(1.35)/sqrt(0.65)), so no real fiducial size can fall in a gap between
+# two hypotheses that both miss it.
+_SCALE_SEARCH_DPI_MIN = 30.0
+_SCALE_SEARCH_DPI_MAX = 600.0
+_SCALE_SEARCH_STEPS = 14
+
+
+def _scale_search_hypotheses() -> list[float]:
+    log_min, log_max = np.log(_SCALE_SEARCH_DPI_MIN), np.log(_SCALE_SEARCH_DPI_MAX)
+    return list(np.exp(np.linspace(log_min, log_max, _SCALE_SEARCH_STEPS)))
+
+
+def _all_squarish_blob_candidates(gray: np.ndarray) -> list[tuple[float, float, float]]:
+    """Locate every blob shaped like a fiducial square anywhere in the
+    image, regardless of absolute size - size filtering happens later, per
+    scale hypothesis (`_candidates_at_scale`), so the expensive contour
+    search itself runs exactly once regardless of how many hypotheses
+    `align_page` sweeps. Returns (cx, cy, area) triples."""
     _, thresh = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    candidates: list[tuple[float, float]] = []
+    image_area = gray.shape[0] * gray.shape[1]
+    candidates: list[tuple[float, float, float]] = []
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if not (
-            expected_area_px * (1 - AREA_TOLERANCE)
-            <= area
-            <= expected_area_px * (1 + AREA_TOLERANCE)
-        ):
+        # Sanity floor/ceiling only, independent of any scale hypothesis -
+        # reject pure noise specks and anything too large to plausibly be a
+        # single corner marker (e.g. the whole thresholded page background
+        # merged into one contour).
+        if area < 25 or area > image_area * 0.05:
             continue
 
         perimeter = cv2.arcLength(cnt, True)
@@ -97,9 +143,25 @@ def _fiducial_candidates(gray: np.ndarray, expected_area_px: float) -> list[tupl
         if rect_area == 0 or area / rect_area < MIN_EXTENT:
             continue
 
-        candidates.append((cx, cy))
+        candidates.append((cx, cy, area))
 
     return candidates
+
+
+def _candidates_at_scale(
+    all_candidates: list[tuple[float, float, float]], expected_area_px: float
+) -> list[tuple[float, float]]:
+    """Narrows the full candidate pool to those matching one scale
+    hypothesis's expected fiducial size (+-AREA_TOLERANCE) - keeps the
+    per-hypothesis combinatorial search in `_best_corner_assignment` over a
+    small, plausible subset rather than every squarish blob in the image."""
+    return [
+        (cx, cy)
+        for cx, cy, area in all_candidates
+        if expected_area_px * (1 - AREA_TOLERANCE)
+        <= area
+        <= expected_area_px * (1 + AREA_TOLERANCE)
+    ]
 
 
 def _normalize_angle_deg(angle_deg: float) -> float:
@@ -109,11 +171,14 @@ def _normalize_angle_deg(angle_deg: float) -> float:
 
 def _best_corner_assignment(
     candidates: list[tuple[float, float]], expected: dict[str, tuple[float, float]]
-) -> dict[str, tuple[float, float]] | None:
+) -> tuple[dict[str, tuple[float, float]], float] | None:
     """Pick 4 of the candidate points and assign each to a named corner by
     finding the assignment whose best-fit similarity transform (rotation +
     uniform scale + translation) onto the expected layout has the least
-    residual error. Robust to skew/extra noise candidates.
+    residual error. Robust to skew/extra noise candidates, and to the
+    candidates being at any uniform scale relative to `expected` - the fit
+    itself solves for scale, so this needs no a-priori assumption about how
+    large the candidates appear versus the expected (fixed-DPI) layout.
 
     A rectangle is symmetric under a 180-degree rotation (top_left <->
     bottom_right, top_right <-> bottom_left), so the *correct* correspondence
@@ -121,6 +186,11 @@ def _best_corner_assignment(
     by residual alone is a coin flip between them. A real scan is never
     rotated anywhere near 180 degrees, so among near-tied fits we break the
     tie by preferring the smallest absolute rotation angle.
+
+    Returns `(assignment, residual_error)` - the caller (`align_page`) uses
+    the residual to compare fits found under different scale hypotheses and
+    keep only the best one, since more than one hypothesis's tolerance
+    window can plausibly admit 4 candidates.
     """
     if len(candidates) < 4:
         return None
@@ -145,42 +215,65 @@ def _best_corner_assignment(
     min_error = min(error for error, _, _ in scored)
     error_tolerance = max(min_error * 2, 1.0)
     plausible = [item for item in scored if item[0] <= error_tolerance]
-    _, _, best_combo = min(plausible, key=lambda item: abs(_normalize_angle_deg(item[1])))
+    chosen_error, _, best_combo = min(
+        plausible, key=lambda item: abs(_normalize_angle_deg(item[1]))
+    )
 
-    return {name: best_combo[i] for i, name in enumerate(names)}
+    return {name: best_combo[i] for i, name in enumerate(names)}, chosen_error
 
 
 def align_page(image: np.ndarray, template: dict, dpi: int = 200) -> AlignmentResult:
     """Detect the four corner fiducials in `image` and return a homography-
     corrected copy of it matching the canonical page geometry.
 
+    `dpi` governs only the *output* canonical geometry (the fixed pixel
+    space every downstream step - bubble extraction, QR cropping - trusts,
+    and what `image` gets warped to). It does NOT assume `image` itself
+    already matches that scale: a live camera photo's effective scale is
+    arbitrary (the page can occupy any fraction of the frame depending on
+    distance), so candidate fiducials are searched for across a swept range
+    of scale hypotheses (`_scale_search_hypotheses`), keeping whichever
+    hypothesis yields the best-fitting 4-corner assignment.
+
     Fails gracefully - AlignmentResult(success=False, error=...) - rather
-    than raising or silently producing wrong coordinates whenever fewer than
-    4 fiducials can be confidently located (e.g. occluded/torn corner).
+    than raising or silently producing wrong coordinates whenever no scale
+    hypothesis yields 4 confidently-located fiducials (e.g. occluded/torn
+    corner, or a page that genuinely isn't in frame at all).
     """
     gray = _to_gray(image)
-    scale = dpi / 72.0
-    expected_area_px = (template["fiducials"]["size_pt"] * scale) ** 2
+    all_candidates = _all_squarish_blob_candidates(gray)
+    expected_px = expected_fiducial_pixels(template, dpi)
+    fiducial_size_pt = template["fiducials"]["size_pt"]
 
-    candidates = _fiducial_candidates(gray, expected_area_px)
-    if len(candidates) < 4:
+    best: tuple[dict[str, tuple[float, float]], float] | None = None
+    max_candidates_at_any_scale = 0
+    for hypothesis_dpi in _scale_search_hypotheses():
+        expected_area_px = (fiducial_size_pt * hypothesis_dpi / 72.0) ** 2
+        scale_candidates = _candidates_at_scale(all_candidates, expected_area_px)
+        max_candidates_at_any_scale = max(max_candidates_at_any_scale, len(scale_candidates))
+        if len(scale_candidates) < 4:
+            continue
+
+        fit = _best_corner_assignment(scale_candidates, expected_px)
+        if fit is None:
+            continue
+        assignment, error = fit
+        if error <= MAX_ACCEPTABLE_RESIDUAL and (best is None or error < best[1]):
+            best = (assignment, error)
+
+    if best is None:
         return AlignmentResult(
             success=False,
-            error=f"expected 4 fiducial markers, found {len(candidates)}",
+            error=f"expected 4 fiducial markers, found {max_candidates_at_any_scale}",
         )
 
-    expected_px = expected_fiducial_pixels(template, dpi)
-    assignment = _best_corner_assignment(candidates, expected_px)
-    if assignment is None:
-        return AlignmentResult(
-            success=False, error="could not match detected markers to page corners"
-        )
-
+    assignment, _residual = best
     names = list(expected_px.keys())
     src = np.array([assignment[n] for n in names], dtype=np.float32)
     dst = np.array([expected_px[n] for n in names], dtype=np.float32)
     homography = cv2.getPerspectiveTransform(src, dst)
 
+    scale = dpi / 72.0
     page_w_px = int(round(template["page_width_pt"] * scale))
     page_h_px = int(round(template["page_height_pt"] * scale))
     warped = cv2.warpPerspective(image, homography, (page_w_px, page_h_px))

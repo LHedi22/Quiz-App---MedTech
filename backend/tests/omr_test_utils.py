@@ -97,6 +97,47 @@ def forward_point(matrix: np.ndarray, x: float, y: float) -> tuple[float, float]
     return float(out[0]), float(out[1])
 
 
+def composite_page_in_frame(
+    page_rgb: np.ndarray,
+    frame_width: int,
+    frame_height: int,
+    page_width_fraction: float,
+    background_value: int = 235,
+) -> tuple[np.ndarray, float, float, float]:
+    """Places `page_rgb`, scaled down, onto a larger synthetic 'camera frame'
+    canvas with background margin on all sides - simulating a real camera
+    photo, where the page occupies some unknown fraction of the frame
+    depending on how far away it was held, unlike every other fixture in
+    this test suite, which renders the page at exactly the fixed 200 DPI
+    `align_page` assumes fills the whole image. `page_width_fraction`
+    controls how much of the frame's width the scaled page occupies (page
+    height follows from its own aspect ratio, so the page may not touch the
+    frame's top/bottom edges either).
+
+    Returns `(frame, scale, x_offset, y_offset)`: `scale` is the uniform
+    factor from `page_rgb` pixel coordinates to `frame` pixel coordinates,
+    and `x_offset`/`y_offset` the page's top-left placement in the frame -
+    together, a caller can map any known point in `page_rgb` into `frame`
+    the same way `rotate_with_padding`'s `forward_point` does for rotation,
+    to verify a recovered homography without any ambiguity about placement.
+    """
+    page_h, page_w = page_rgb.shape[:2]
+    scale = (frame_width * page_width_fraction) / page_w
+    scaled_w = max(1, int(round(page_w * scale)))
+    scaled_h = max(1, int(round(page_h * scale)))
+    if scaled_h > frame_height:
+        scale *= frame_height / scaled_h
+        scaled_w = max(1, int(round(page_w * scale)))
+        scaled_h = max(1, int(round(page_h * scale)))
+
+    scaled_page = cv2.resize(page_rgb, (scaled_w, scaled_h), interpolation=cv2.INTER_AREA)
+    frame = np.full((frame_height, frame_width, 3), background_value, dtype=np.uint8)
+    x_offset = (frame_width - scaled_w) // 2
+    y_offset = (frame_height - scaled_h) // 2
+    frame[y_offset : y_offset + scaled_h, x_offset : x_offset + scaled_w] = scaled_page
+    return frame, scale, float(x_offset), float(y_offset)
+
+
 def simulate_photo(image: np.ndarray, blur_ksize: int = 3, jpeg_quality: int = 70) -> np.ndarray:
     """Roughly approximate a phone-photo (vs. a clean digital render): a
     little blur plus lossy JPEG recompression."""

@@ -10,6 +10,7 @@ from app.ml.omr.align import align_page, expected_fiducial_pixels
 from app.services.geometry import bubble_center_pt, pdf_point_to_pixel
 from app.services.pdf_gen import load_template, render_version_pdf
 from tests.omr_test_utils import (
+    composite_page_in_frame,
     forward_point,
     make_version_for_render,
     render_page_rgb,
@@ -54,6 +55,43 @@ def test_alignment_recovers_bubble_coordinates_within_tolerance_when_rotated(
         assert error <= ALIGNMENT_TOLERANCE_PX, (
             f"bubble at pt=({x_pt},{y_pt}) recovered {error:.2f}px off "
             f"(tolerance {ALIGNMENT_TOLERANCE_PX}px) at rotation {angle_deg} degrees"
+        )
+
+
+@pytest.mark.parametrize("page_width_fraction", [0.35, 0.6, 0.9])
+def test_alignment_recovers_bubble_coordinates_when_page_is_a_fraction_of_a_larger_camera_frame(
+    reference_page_rgb, page_width_fraction
+):
+    """A live camera photo is never pixel-perfect-at-200-DPI like every other
+    fixture in this file - the page occupies some unknown fraction of a
+    larger frame depending on how far away the professor held the device
+    (confirmed live: a real 1920x1080 capture failed with 'found 0 fiducial
+    markers' even after fixing resolution/rotation/blur handling - see
+    PROGRESS.md). `align_page` must search across scale, not assume the
+    upload already matches the template's fixed-DPI pixel geometry."""
+    template = load_template()
+    frame_w, frame_h = 1920, 1080
+    frame, scale, x_off, y_off = composite_page_in_frame(
+        reference_page_rgb, frame_w, frame_h, page_width_fraction
+    )
+
+    result = align_page(frame, template, dpi=DPI)
+    assert (
+        result.success
+    ), f"alignment failed at page_width_fraction={page_width_fraction}: {result.error}"
+
+    page_h = template["page_height_pt"]
+    for x_pt, y_pt in _sample_bubble_points_pt(template):
+        true_px = pdf_point_to_pixel(x_pt, y_pt, page_h, DPI)
+        frame_px = (true_px[0] * scale + x_off, true_px[1] * scale + y_off)
+
+        src = np.array([[[frame_px[0], frame_px[1]]]], dtype=np.float32)
+        recovered_px = cv2.perspectiveTransform(src, result.homography)[0][0]
+
+        error = float(np.hypot(recovered_px[0] - true_px[0], recovered_px[1] - true_px[1]))
+        assert error <= ALIGNMENT_TOLERANCE_PX, (
+            f"bubble at pt=({x_pt},{y_pt}) recovered {error:.2f}px off "
+            f"(tolerance {ALIGNMENT_TOLERANCE_PX}px) at page_width_fraction={page_width_fraction}"
         )
 
 
