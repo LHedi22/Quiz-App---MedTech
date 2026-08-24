@@ -23,9 +23,30 @@ export interface RgbaFrame {
   data: Uint8ClampedArray | Uint8Array;
 }
 
-/** Variance-of-Laplacian threshold below which a page is judged blurry -
- * identical value to the Dart original's `blurThreshold`. */
-const BLUR_THRESHOLD = 500.0;
+/** Variance-of-Laplacian threshold below which a page is judged blurry.
+ *
+ * Originally 500.0, ported unchanged from the Dart original's
+ * `blurThreshold` - but that value was itself only ever calibrated against
+ * a synthetic maximal-edge-density checkerboard test fixture, on *either*
+ * client, never against a real camera frame (no camera hardware existed in
+ * this dev environment until web's browser-based capture, Phase 7c). A real
+ * printed exam page is mostly white background with comparatively sparse
+ * black text/bubbles - nothing like a checkerboard - so this consistently
+ * under-measured real captures as "blurry" even when visually sharp,
+ * confirmed live 2026-08-24: a real capture judged visually fine by the
+ * professor testing it scored sharpnessScore=361 against the old
+ * threshold=500. Lowered to comfortably clear that real data point while
+ * staying well above the near-zero variance of a genuinely blank/flat
+ * frame - not re-derived from further real samples (only the one data
+ * point exists so far), so this may need another pass once more real
+ * captures - including a genuinely blurry one - are available to bound the
+ * other side of the range. Low risk if still imperfect: this is only a
+ * fast local "worth uploading" pre-check, not the authoritative quality
+ * gate - the backend's real per-bubble classifier confidence gate
+ * (CLAUDE.md Section 2 Rule 5) still catches genuinely unscoreable
+ * captures and routes them to review rather than silently scoring them
+ * wrong. */
+const BLUR_THRESHOLD = 150.0;
 
 /** A blank/near-uniform frame has near-zero pixel-intensity spread; a
  * printed answer sheet with a QR code does not. Identical value to the Dart

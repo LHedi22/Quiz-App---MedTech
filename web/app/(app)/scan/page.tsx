@@ -145,15 +145,10 @@ export default function ScanPage() {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const quality = evaluateCaptureQuality(imageData);
       if (quality.needsRetake) {
-        // TEMP DIAGNOSTIC (2026-08-24): BLUR_THRESHOLD was calibrated only
-        // against a synthetic checkerboard fixture, never a real camera
-        // frame on either client (see PROGRESS.md) - surfacing the actual
-        // computed score here so it can be read back and used to recalibrate
-        // against real data instead of guessing. Remove once resolved.
         setRetakeReason(
           quality.isBlurry
-            ? `Image looks blurry — hold steady and retake. (debug: sharpnessScore=${Math.round(quality.sharpnessScore)}, threshold=500, ${canvas.width}x${canvas.height})`
-            : `No page detected in frame — retake. (debug: sharpnessScore=${Math.round(quality.sharpnessScore)})`,
+            ? "Image looks blurry — hold steady and retake."
+            : "No page detected in frame — retake.",
         );
         return;
       }
