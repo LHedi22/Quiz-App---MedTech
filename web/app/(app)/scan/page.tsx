@@ -13,6 +13,13 @@ type CameraState = "initializing" | "ready" | "permission_denied" | "no_camera" 
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL!;
 
+// Backstop for a device that ignores the getUserMedia `ideal` resolution
+// constraint below and falls back to something like 640x480 anyway - the
+// backend's alignment step has no chance of finding the page's fiducial
+// markers at that resolution (confirmed live), so fail fast locally with a
+// clear message instead of a round-trip that ends in a generic rejection.
+const MIN_CAPTURE_DIMENSION_PX = 720;
+
 async function tryGetAccessToken(): Promise<string | null> {
   try {
     return await getAccessToken();
@@ -55,8 +62,18 @@ export default function ScanPage() {
         return;
       }
       try {
+        // Explicit high-resolution constraints matter here: without them,
+        // browsers commonly default to 640x480 (confirmed live - see
+        // PROGRESS.md's QR-decode-order-bug follow-up), which is far below
+        // what the backend's alignment step can work with - it expects
+        // something close to the template's canonical page size
+        // (~1700x2200px at the fixed 200 DPI the OMR pipeline assumes), so a
+        // 640x480 frame has no chance of resolving the fiducial markers at
+        // all, let alone bubbles/QR detail. "ideal" is a soft constraint -
+        // the browser picks the closest resolution the device actually
+        // supports rather than failing if e.g. a low-end webcam can't hit it.
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
+          video: { facingMode: "environment", width: { ideal: 2560 }, height: { ideal: 2560 } },
           audio: false,
         });
         if (cancelled) {
@@ -104,6 +121,10 @@ export default function ScanPage() {
     try {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
+      if (Math.min(canvas.width, canvas.height) < MIN_CAPTURE_DIMENSION_PX) {
+        setRetakeReason("Camera resolution too low to scan reliably — retake.");
+        return;
+      }
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
