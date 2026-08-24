@@ -62,18 +62,32 @@ export default function ScanPage() {
         return;
       }
       try {
-        // Explicit high-resolution constraints matter here: without them,
-        // browsers commonly default to 640x480 (confirmed live - see
-        // PROGRESS.md's QR-decode-order-bug follow-up), which is far below
-        // what the backend's alignment step can work with - it expects
-        // something close to the template's canonical page size
-        // (~1700x2200px at the fixed 200 DPI the OMR pipeline assumes), so a
-        // 640x480 frame has no chance of resolving the fiducial markers at
-        // all, let alone bubbles/QR detail. "ideal" is a soft constraint -
-        // the browser picks the closest resolution the device actually
-        // supports rather than failing if e.g. a low-end webcam can't hit it.
+        // Explicit resolution constraints matter here: without them, browsers
+        // commonly default to 640x480 (confirmed live - see PROGRESS.md's
+        // QR-decode-order-bug follow-up), which is far below what the
+        // backend's alignment step can work with - it expects something
+        // close to the template's canonical page size (~1700x2200px at the
+        // fixed 200 DPI the OMR pipeline assumes). 1920x1080 rather than a
+        // higher figure deliberately: it's a resolution nearly every
+        // camera/webcam supports *natively*, whereas requesting something a
+        // device can't actually produce gets honored via upscaling -
+        // confirmed live to look visibly softer on screen than the device's
+        // native output, not sharper. "ideal" is a soft constraint either
+        // way - the browser picks the closest supported resolution rather
+        // than failing outright. `focusMode: "continuous"` is a best-effort
+        // hint (Image Capture API, not on the standard TS DOM lib type,
+        // hence the cast below) - unsupported on many built-in laptop
+        // webcams, which are physically fixed-focus and can't be nudged into
+        // focusing sharply at close range in software; there's no code fix
+        // for that specific hardware limit, only asking the professor to
+        // hold the page further back or use a phone camera instead.
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment", width: { ideal: 2560 }, height: { ideal: 2560 } },
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            advanced: [{ focusMode: "continuous" } as MediaTrackConstraintSet],
+          },
           audio: false,
         });
         if (cancelled) {
