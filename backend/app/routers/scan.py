@@ -16,6 +16,7 @@ mis-score.
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 import cv2
@@ -35,6 +36,7 @@ from app.services.pdf_gen import load_template
 from app.services.scoring import lookup_version_by_qr_id, translate_and_score
 
 router = APIRouter()
+logger = logging.getLogger("scan_diagnostics")
 
 DPI = 200
 NUM_OPTIONS = 4
@@ -71,10 +73,23 @@ async def scan_submission(
     image_array = np.frombuffer(contents, dtype=np.uint8)
     bgr = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
     if bgr is None:
+        logger.warning(
+            "scan_diag capture_id=%s result=unreadable_image upload_bytes=%d",
+            capture_id, len(contents),
+        )
         raise HTTPException(status_code=422, detail={"error": "unreadable_image"})
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
     template = load_template()
+
+    # TEMP DIAGNOSTIC (2026-08-24): every real camera scan still 422s after
+    # the QR-decode-order fix (see PROGRESS.md) - logging alignment/QR
+    # outcomes here to see which stage is actually rejecting live photos,
+    # rather than guessing at a second fix blind. Remove once resolved.
+    logger.warning(
+        "scan_diag capture_id=%s upload_image_hw=%s",
+        capture_id, bgr.shape[:2],
+    )
 
     # Alignment doesn't depend on which version was scanned - it only needs
     # the shared physical page template - so it can run before the QR is even
@@ -86,6 +101,10 @@ async def scan_submission(
     # style_photo_still_decodes_and_scores.
     alignment = align_page(rgb, template, dpi=DPI)
     if not alignment.success:
+        logger.warning(
+            "scan_diag capture_id=%s result=alignment_failed error=%r upload_image_hw=%s",
+            capture_id, alignment.error, bgr.shape[:2],
+        )
         raise HTTPException(
             status_code=422, detail={"error": "alignment_failed", "message": alignment.error}
         )
@@ -95,7 +114,13 @@ async def scan_submission(
     # it must not be silently treated as an ordinary needs_review submission.
     qr_id = decode_qr_from_page(alignment.warped_image, template, dpi=DPI)
     if qr_id is None:
+        logger.warning(
+            "scan_diag capture_id=%s result=qr_unreadable warped_image_hw=%s",
+            capture_id, alignment.warped_image.shape[:2],
+        )
         raise HTTPException(status_code=422, detail={"error": "qr_unreadable"})
+
+    logger.warning("scan_diag capture_id=%s result=qr_decoded qr_id=%s", capture_id, qr_id)
 
     with get_connection() as conn:
         lookup = lookup_version_by_qr_id(conn, qr_id)
