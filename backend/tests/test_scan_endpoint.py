@@ -29,7 +29,7 @@ from app.services import submissions as submissions_service
 from app.services.geometry import bubble_center_pt, pdf_point_to_pixel
 from app.services.pdf_gen import load_template, render_version_pdf
 from app.services.qr import generate_qr
-from tests.omr_test_utils import render_page_rgb, write_name_on_page
+from tests.omr_test_utils import render_page_rgb, rotate_with_padding, write_name_on_page
 from tests.test_quizzes_endpoint import auth_headers, create_auth_user_and_token
 
 
@@ -251,6 +251,40 @@ def test_scan_all_correct_finalizes_with_correct_db_state(seeded_quiz):
         assert answer["flagged"] is False
         assert answer["correct"] is True
         assert answer["score"] == 1.0
+
+
+def test_scan_from_a_rotated_camera_style_photo_still_decodes_and_scores(seeded_quiz):
+    """A live browser/phone camera capture is never pixel-perfect axis-aligned
+    like the rest of this file's synthetic fixtures - it's rotated/skewed by
+    however the professor was holding the device, which is exactly what
+    `align_page`'s fiducial homography exists to correct (Subtask 5.1). The
+    QR box's position is only valid post-alignment, so decoding must happen
+    against the warped image, not the raw upload - otherwise a real photo's
+    QR code is essentially never where `qr_box_pixel_rect` expects it and
+    every genuine camera scan 422s as qr_unreadable (see Phase 7c web
+    scanning: this is what a live professor hits every time they submit)."""
+    template = load_template()
+    page_rgb = _render_and_rasterize(seeded_quiz)
+    write_name_on_page(page_rgb, template, "JOHN SMITH", dpi=DPI)
+    for row_index, qid in enumerate(seeded_quiz["question_order"]):
+        shuffled_pos = _correct_shuffled_position(seeded_quiz, qid)
+        _mark_bubble_filled(page_rgb, template, row_index, shuffled_pos)
+
+    rotated, _forward_matrix = rotate_with_padding(page_rgb, angle_deg=8)
+
+    response = client.post(
+        "/scan", files={"file": ("scan.png", _page_to_upload_bytes(rotated), "image/png")}
+    )
+
+    # The point of this test is that the pipeline reaches scoring at all
+    # instead of 422ing as qr_unreadable - not exact classifier confidence
+    # under rotation-warp interpolation, which can plausibly soften one
+    # bubble's edges enough to dip below the confidence threshold. Either
+    # outcome here proves QR decode + alignment + scoring all succeeded.
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["status"] in ("finalized", "needs_review")
+    assert len(body["flagged_question_numbers"]) <= 1
 
 
 def _scan_with_one_multi_mark(seeded_quiz) -> tuple[dict, int]:

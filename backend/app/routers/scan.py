@@ -76,10 +76,24 @@ async def scan_submission(
 
     template = load_template()
 
+    # Alignment doesn't depend on which version was scanned - it only needs
+    # the shared physical page template - so it can run before the QR is even
+    # decoded. It must run first: the QR box's pixel position (qr_box_pixel_rect)
+    # is only valid once the page has been warped back to canonical geometry.
+    # A raw camera photo is rotated/skewed by however the professor held the
+    # device, so decoding straight off the raw upload puts the crop box
+    # nowhere near the actual QR code - see test_scan_from_a_rotated_camera_
+    # style_photo_still_decodes_and_scores.
+    alignment = align_page(rgb, template, dpi=DPI)
+    if not alignment.success:
+        raise HTTPException(
+            status_code=422, detail={"error": "alignment_failed", "message": alignment.error}
+        )
+
     # QR unreadable is a distinct failure mode: it never reaches version
     # lookup or scoring at all, and no submission row is ever created for it -
     # it must not be silently treated as an ordinary needs_review submission.
-    qr_id = decode_qr_from_page(rgb, template, dpi=DPI)
+    qr_id = decode_qr_from_page(alignment.warped_image, template, dpi=DPI)
     if qr_id is None:
         raise HTTPException(status_code=422, detail={"error": "qr_unreadable"})
 
@@ -95,12 +109,6 @@ async def scan_submission(
             raise HTTPException(
                 status_code=501,
                 detail={"error": "multi_page_not_supported", "num_questions": num_questions},
-            )
-
-        alignment = align_page(rgb, template, dpi=DPI)
-        if not alignment.success:
-            raise HTTPException(
-                status_code=422, detail={"error": "alignment_failed", "message": alignment.error}
             )
 
         detected_answers = _detect_answers_on_page(alignment.warped_image, template, num_questions)
