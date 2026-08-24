@@ -23,6 +23,9 @@ from psycopg.types.json import Json
 
 from app.db import DATABASE_URL
 from app.main import app
+from app.ml.omr.name_ocr import NameDetectionResult
+from app.models.scoring import ScoredAnswer, ScoringResult
+from app.services import submissions as submissions_service
 from app.services.geometry import bubble_center_pt, pdf_point_to_pixel
 from app.services.pdf_gen import load_template, render_version_pdf
 from app.services.qr import generate_qr
@@ -476,6 +479,125 @@ def test_professor_name_correction_finalizes_a_submission_flagged_only_for_name(
     assert db_state["status"] == "finalized"
     assert db_state["student_name"] == "Corrected Name"
     assert db_state["name_flagged"] is False
+
+
+# ---- idempotent capture_id (0005_scan_capture_id) --------------------------
+
+
+def test_scan_same_capture_id_twice_returns_same_submission_and_creates_no_duplicate(seeded_quiz):
+    """Reproduces the exact scenario that surfaced this bug: a client retries
+    a /scan call whose original request actually succeeded server-side (e.g.
+    the response was lost to a client-side timeout). The retry must return
+    the same submission, not create a second one."""
+    template = load_template()
+    page_rgb = _render_and_rasterize(seeded_quiz)
+    write_name_on_page(page_rgb, template, "REPEAT STUDENT", dpi=DPI)
+    for row_index, qid in enumerate(seeded_quiz["question_order"]):
+        shuffled_pos = _correct_shuffled_position(seeded_quiz, qid)
+        _mark_bubble_filled(page_rgb, template, row_index, shuffled_pos)
+    image_bytes = _page_to_upload_bytes(page_rgb)
+
+    capture_id = f"capture-{uuid.uuid4()}"
+    first = client.post(
+        "/scan",
+        files={"file": ("scan.png", image_bytes, "image/png")},
+        params={"capture_id": capture_id},
+    )
+    second = client.post(
+        "/scan",
+        files={"file": ("scan.png", image_bytes, "image/png")},
+        params={"capture_id": capture_id},
+    )
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert first.json() == second.json(), "a replayed capture_id must return an identical body"
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("select count(*) from submissions where capture_id = %s", (capture_id,))
+            submission_count = cur.fetchone()[0]
+    assert submission_count == 1, "a replayed capture_id must not create a second submission row"
+
+    db_state = _fetch_submission(first.json()["submission_id"])
+    assert len(db_state["answers"]) == 4, "answers must not be duplicated either"
+
+
+def test_scan_without_capture_id_still_creates_a_new_submission_each_time(seeded_quiz):
+    """Unchanged default behavior: callers that don't opt into idempotency
+    (capture_id omitted) keep getting a fresh submission per call, exactly
+    as before this fix existed."""
+    template = load_template()
+    page_rgb = _render_and_rasterize(seeded_quiz)
+    write_name_on_page(page_rgb, template, "NO CAPTURE ID", dpi=DPI)
+    for row_index, qid in enumerate(seeded_quiz["question_order"]):
+        shuffled_pos = _correct_shuffled_position(seeded_quiz, qid)
+        _mark_bubble_filled(page_rgb, template, row_index, shuffled_pos)
+    image_bytes = _page_to_upload_bytes(page_rgb)
+
+    first = client.post("/scan", files={"file": ("scan.png", image_bytes, "image/png")})
+    second = client.post("/scan", files={"file": ("scan.png", image_bytes, "image/png")})
+
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert first.json()["submission_id"] != second.json()["submission_id"]
+
+
+def test_create_submission_returns_existing_row_on_capture_id_conflict(seeded_quiz):
+    """Service-level concurrency-safety check: a submission already exists
+    for a given capture_id (as if a concurrent request won the race) -
+    create_submission must return that existing row rather than raising a
+    unique-violation."""
+    capture_id = f"capture-{uuid.uuid4()}"
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into submissions (version_id, status, total_score, capture_id)
+                values (%s, 'finalized', 4.0, %s)
+                returning id
+                """,
+                (str(seeded_quiz["version_id"]), capture_id),
+            )
+            existing_id = cur.fetchone()[0]
+        conn.commit()
+
+    fake_result = ScoringResult(
+        total_score=0.0,
+        status="finalized",
+        answers=[
+            ScoredAnswer(
+                question_no=1,
+                question_id=seeded_quiz["question_order"][0],
+                detected_option="A",
+                confidence=0.99,
+                flagged=False,
+                correct=True,
+                score=1.0,
+            )
+        ],
+    )
+    fake_name = NameDetectionResult(text="Should Not Be Written", confidence=99.0, flagged=False)
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        created = submissions_service.create_submission(
+            conn,
+            seeded_quiz["version_id"],
+            fake_result,
+            fake_name,
+            student_id=None,
+            capture_id=capture_id,
+        )
+
+    assert created.id == existing_id
+    assert created.total_score == 4.0  # the pre-existing row's value, not fake_result's
+
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute("select count(*) from submissions where capture_id = %s", (capture_id,))
+            assert cur.fetchone()[0] == 1
+            cur.execute("select count(*) from answers where submission_id = %s", (existing_id,))
+            assert cur.fetchone()[0] == 0, "no answers should have been inserted for the conflict"
 
 
 def test_professor_name_correction_requires_owning_professors_token(seeded_quiz):

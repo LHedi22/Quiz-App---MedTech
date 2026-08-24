@@ -148,7 +148,10 @@ create table submissions (
   name_flagged boolean not null default false, -- confidence gate: true routes to needs_review
   total_score float,
   status text not null default 'pending',   -- pending | finalized | needs_review
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  capture_id text                           -- optional, client-generated; unique per non-null
+                                             -- value, lets a retried scan return the existing
+                                             -- submission instead of creating a duplicate
 );
 
 create table answers (

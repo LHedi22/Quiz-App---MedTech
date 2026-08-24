@@ -128,6 +128,29 @@ def test_duplicate_options_upload_returns_422_with_structured_errors_and_writes_
     assert question_count(quiz_id) == 0
 
 
+def test_long_option_upload_returns_422_with_structured_errors_and_writes_nothing(demo_quiz):
+    from app.services.parsing import _approx_max_chars, _option_width_budget_pt
+    from app.services.pdf_gen import load_template
+
+    template = load_template()
+    max_chars = _approx_max_chars(template, _option_width_budget_pt(template))
+
+    quiz_id = demo_quiz["quiz_id"]
+    response = upload(quiz_id, "long_option.xlsx", demo_quiz["token"])
+
+    assert response.status_code == 422
+    errors = response.json()["detail"]["errors"]
+    assert errors == [
+        {
+            "row_number": 2,
+            "messages": [
+                f"option_b is too long to print (max ~{max_chars} characters at this column width)"
+            ],
+        }
+    ]
+    assert question_count(quiz_id) == 0
+
+
 def test_upload_to_nonexistent_quiz_returns_404_and_writes_nothing(demo_quiz):
     # A real, authenticated professor still gets 404 (not a leaked 401/403)
     # for a quiz id that doesn't belong to them.

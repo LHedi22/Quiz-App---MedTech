@@ -64,7 +64,9 @@ def _detect_answers_on_page(
 
 
 @router.post("/scan", status_code=201)
-async def scan_submission(file: UploadFile, student_id: str | None = None) -> dict:
+async def scan_submission(
+    file: UploadFile, student_id: str | None = None, capture_id: str | None = None
+) -> dict:
     contents = await file.read()
     image_array = np.frombuffer(contents, dtype=np.uint8)
     bgr = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
@@ -106,7 +108,7 @@ async def scan_submission(file: UploadFile, student_id: str | None = None) -> di
         name_result = detect_name(alignment.warped_image, template, dpi=DPI)
 
         submission = submissions_service.create_submission(
-            conn, lookup.version.id, result, name_result, student_id
+            conn, lookup.version.id, result, name_result, student_id, capture_id
         )
 
     return {

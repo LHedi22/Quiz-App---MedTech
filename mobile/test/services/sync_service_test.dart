@@ -17,13 +17,19 @@ import 'package:exam_scanner_mobile/services/sync_service.dart';
 class FakeScanApi implements ScanApi {
   final List<Object> _behaviors = [];
   int callCount = 0;
+  final List<String> receivedCaptureIds = [];
 
   void enqueueSuccess(ScanResult result) => _behaviors.add(result);
   void enqueueFailure(Object error) => _behaviors.add(error);
 
   @override
-  Future<ScanResult> scanSubmission(Uint8List imageBytes, {String? studentId}) async {
+  Future<ScanResult> scanSubmission(
+    Uint8List imageBytes, {
+    String? studentId,
+    required String captureId,
+  }) async {
     callCount++;
+    receivedCaptureIds.add(captureId);
     if (_behaviors.isEmpty) {
       throw StateError('FakeScanApi.scanSubmission called with no behavior queued');
     }
@@ -114,6 +120,27 @@ void main() {
     expect(api.callCount, 2);
     expect(syncService.backoffFor(2), greaterThan(syncService.backoffFor(1)),
         reason: 'backoff must grow with each successive failure');
+  });
+
+  test('a retry after a failed attempt sends the same capture_id (item.id) both times', () async {
+    // The backend dedupes on capture_id (0005_scan_capture_id migration) -
+    // a retry after a lost response must reuse the id from the original
+    // attempt, not a fresh one, or a request that actually succeeded
+    // server-side despite the client seeing a failure would create a
+    // duplicate submission on retry.
+    final repository = QueueRepository(await SharedPreferences.getInstance());
+    await repository.add(_pendingItem('stable-item-id'));
+    final api = FakeScanApi()
+      ..enqueueFailure(ApiException(500, 'backend error'))
+      ..enqueueSuccess(ScanResult(submissionId: 's1', status: 'finalized', totalScore: 5, flaggedQuestionNumbers: []));
+    final syncService = SyncService(repository: repository, api: api);
+
+    await syncService.syncPending();
+    final item = repository.loadAll().single;
+    await repository.update(item.copyWith(nextAttemptAt: DateTime.now().subtract(const Duration(seconds: 1))));
+    await syncService.syncPending();
+
+    expect(api.receivedCaptureIds, ['stable-item-id', 'stable-item-id']);
   });
 
   test('backoff is capped at maxBackoff, not unbounded', () async {

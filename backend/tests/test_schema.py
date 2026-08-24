@@ -51,6 +51,7 @@ EXPECTED_COLUMNS = {
         "total_score": ("double precision", "YES"),
         "status": ("text", "NO"),
         "created_at": ("timestamp with time zone", "NO"),
+        "capture_id": ("text", "YES"),
     },
     "answers": {
         "id": ("uuid", "NO"),

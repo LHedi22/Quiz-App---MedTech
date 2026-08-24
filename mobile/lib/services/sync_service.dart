@@ -75,7 +75,17 @@ class SyncService {
   Future<void> _attempt(ScanQueueItem item) async {
     await repository.update(item.copyWith(state: QueueItemState.uploading));
     try {
-      final result = await api.scanSubmission(item.imageBytes, studentId: item.studentId);
+      // item.id is generated once when the sheet is captured and stays the
+      // same across every retry (see ScanQueueItem/generateQueueItemId) -
+      // reused directly as the backend's idempotency key so a retry after a
+      // lost response (the original request actually succeeded
+      // server-side) returns the existing submission instead of creating a
+      // duplicate. See backend/migrations/0005_scan_capture_id.up.sql.
+      final result = await api.scanSubmission(
+        item.imageBytes,
+        studentId: item.studentId,
+        captureId: item.id,
+      );
       await repository.update(item.copyWith(
         state: QueueItemState.processed,
         submissionId: result.submissionId,

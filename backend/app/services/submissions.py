@@ -30,6 +30,7 @@ def create_submission(
     result: ScoringResult,
     name_result: NameDetectionResult,
     student_id: str | None = None,
+    capture_id: str | None = None,
 ) -> CreatedSubmission:
     """Insert a submission and all of its answers as a single transaction.
 
@@ -40,6 +41,17 @@ def create_submission(
     still persisted even when only the name is flagged: the answer score
     itself is genuinely known, only the student's identity isn't confirmed
     yet.
+
+    `capture_id` is an optional, client-generated id sent with every attempt
+    for the same physical capture (including retries after a lost response -
+    see the 0005_scan_capture_id migration). When provided and a submission
+    with that `capture_id` already exists, this returns the *existing*
+    submission instead of inserting a second one - a retried /scan call
+    whose original request actually succeeded server-side must not create a
+    duplicate. The OMR pipeline still re-runs on a retry (this function is
+    called after alignment/classification/scoring already happened); only
+    the database write is deduplicated. When `capture_id` is None, behavior
+    is unchanged from before this existed: always inserts.
 
     Returns the fields the caller needs rather than just the id: this
     function's `with conn:` block commits *and closes* `conn` (this
@@ -58,8 +70,9 @@ def create_submission(
                 """
                 insert into submissions
                     (version_id, student_id, student_name, name_confidence,
-                     name_flagged, total_score, status)
-                values (%s, %s, %s, %s, %s, %s, %s)
+                     name_flagged, total_score, status, capture_id)
+                values (%s, %s, %s, %s, %s, %s, %s, %s)
+                on conflict (capture_id) where capture_id is not null do nothing
                 returning id
                 """,
                 (
@@ -70,9 +83,32 @@ def create_submission(
                     name_result.flagged,
                     result.total_score,
                     status,
+                    capture_id,
                 ),
             )
-            submission_id = cur.fetchone()[0]
+            inserted = cur.fetchone()
+
+            if inserted is None:
+                # capture_id collided with an existing row - this is a
+                # replayed retry, not a new scan. Return the pre-existing
+                # submission unchanged rather than writing a second one.
+                cur.execute(
+                    """
+                    select id, status, total_score, student_name, name_flagged
+                    from submissions where capture_id = %s
+                    """,
+                    (capture_id,),
+                )
+                existing = cur.fetchone()
+                return CreatedSubmission(
+                    id=existing[0],
+                    status=existing[1],
+                    total_score=existing[2],
+                    student_name=existing[3],
+                    name_flagged=existing[4],
+                )
+
+            submission_id = inserted[0]
 
             for answer in result.answers:
                 cur.execute(

@@ -24,7 +24,7 @@ export class ScanSubmitError extends Error {
 }
 
 export interface ScanApi {
-  submitScan(blob: Blob, accessToken: string | null): Promise<ScanResult>;
+  submitScan(blob: Blob, accessToken: string | null, captureId: string): Promise<ScanResult>;
 }
 
 function parseScanResult(data: Record<string, unknown>): ScanResult {
@@ -43,11 +43,14 @@ function parseScanResult(data: Record<string, unknown>): ScanResult {
 export class RealScanApi implements ScanApi {
   constructor(private readonly baseUrl: string) {}
 
-  async submitScan(blob: Blob, accessToken: string | null): Promise<ScanResult> {
+  async submitScan(blob: Blob, accessToken: string | null, captureId: string): Promise<ScanResult> {
     const formData = new FormData();
     formData.append("file", blob, "scan.jpg");
 
-    const response = await fetch(`${this.baseUrl}/scan`, {
+    const url = new URL(`${this.baseUrl}/scan`);
+    url.searchParams.set("capture_id", captureId);
+
+    const response = await fetch(url, {
       method: "POST",
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
       body: formData,

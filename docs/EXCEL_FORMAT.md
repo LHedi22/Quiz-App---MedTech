@@ -30,6 +30,11 @@ of them is reported together, not just the first:
 4. `correct_option` must be exactly one of `A`, `B`, `C`, `D` (case-insensitive; stored
    uppercase). Empty, missing, or any other value (including things like `"A,B"` or
    `"E"`) is rejected.
+5. Each option must fit within its printed column (~16 characters at the default
+   template's font/column width, measured against the actual PDF layout in
+   `app/config/pdf_template.json` — not a fixed character count). An option that's too
+   long to print without overlapping the next option's bubble is rejected with a
+   message telling the professor roughly how many characters fit.
 
 A row that fails multiple rules gets all of its failure reasons reported together, not
 just the first one that trips.
@@ -51,3 +56,4 @@ Three `.xlsx` fixtures exercising this spec live under
 - `valid.xlsx` — 3 well-formed rows, used to assert exact parsed field values.
 - `missing_answer.xlsx` — one row with an empty `correct_option` cell.
 - `duplicate_options.xlsx` — one row where `option_a` and `option_c` are identical text.
+- `long_option.xlsx` — one row where `option_b` exceeds the printable column width.

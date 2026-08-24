@@ -24,6 +24,12 @@ export interface ScanSheet {
 export function useScanQueue(api: ScanApi, getAccessToken: () => Promise<string | null>) {
   const [sheets, setSheets] = useState<ScanSheet[]>([]);
   const blobsRef = useRef<Map<string, Blob>>(new Map());
+  // One id generated per captured sheet, reused on every attempt for that
+  // sheet - including retry() - so a retry after a lost response (the
+  // original request actually succeeded server-side, the client just never
+  // saw it) returns the existing submission instead of creating a
+  // duplicate. See backend/migrations/0005_scan_capture_id.up.sql.
+  const captureIdsRef = useRef<Map<string, string>>(new Map());
   const nextIdRef = useRef(0);
 
   const attempt = useCallback(
@@ -33,7 +39,8 @@ export function useScanQueue(api: ScanApi, getAccessToken: () => Promise<string 
       );
       try {
         const token = await getAccessToken();
-        const result = await api.submitScan(blob, token);
+        const captureId = captureIdsRef.current.get(id)!;
+        const result = await api.submitScan(blob, token, captureId);
         setSheets((prev) => (prev.map((s) => (s.id === id ? { ...s, state: "submitted", result } : s))));
       } catch (err) {
         // Network drop mid-flight and a definite backend rejection (e.g.
@@ -60,6 +67,7 @@ export function useScanQueue(api: ScanApi, getAccessToken: () => Promise<string 
     (blob: Blob) => {
       const id = `sheet-${nextIdRef.current++}`;
       blobsRef.current.set(id, blob);
+      captureIdsRef.current.set(id, crypto.randomUUID());
       setSheets((prev) => [...prev, { id, state: "submitting" }]);
       void attempt(id, blob);
       return id;

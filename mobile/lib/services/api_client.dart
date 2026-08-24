@@ -22,7 +22,11 @@ class ApiException implements Exception {
 /// itself is exercised directly in real-network integration tests (mirrors
 /// web/lib/services/api_client.dart's Bearer-token pattern).
 abstract class ScanApi {
-  Future<ScanResult> scanSubmission(Uint8List imageBytes, {String? studentId});
+  Future<ScanResult> scanSubmission(
+    Uint8List imageBytes, {
+    String? studentId,
+    required String captureId,
+  });
   Future<SubmissionStatus> getSubmissionStatus(String submissionId);
 }
 
@@ -55,10 +59,14 @@ class ApiClient implements ScanApi {
   }
 
   @override
-  Future<ScanResult> scanSubmission(Uint8List imageBytes, {String? studentId}) async {
-    final uri = Uri.parse('$baseUrl/scan').replace(
-      queryParameters: studentId == null ? null : {'student_id': studentId},
-    );
+  Future<ScanResult> scanSubmission(
+    Uint8List imageBytes, {
+    String? studentId,
+    required String captureId,
+  }) async {
+    final queryParameters = <String, String>{'capture_id': captureId};
+    if (studentId != null) queryParameters['student_id'] = studentId;
+    final uri = Uri.parse('$baseUrl/scan').replace(queryParameters: queryParameters);
     final request = http.MultipartRequest('POST', uri)
       ..headers.addAll(_authHeaders)
       ..files.add(http.MultipartFile.fromBytes('file', imageBytes, filename: 'scan.jpg'));

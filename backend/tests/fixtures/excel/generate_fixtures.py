@@ -87,6 +87,24 @@ def main() -> None:
         ],
     )
 
+    # option_b exceeds the printable column width (see parsing.py's
+    # _option_width_budget_pt, measured against app/config/pdf_template.json)
+    # -- found via a real end-to-end scan where a long option overlapped the
+    # next option's bubble on the printed page.
+    write_workbook(
+        "long_option.xlsx",
+        [
+            [
+                "In relational databases, what does 'ACID' guarantee?",
+                "Short",
+                "Atomicity, Consistency, Isolation, Durability",
+                "Also short",
+                "Still short",
+                "B",
+            ],
+        ],
+    )
+
 
 if __name__ == "__main__":
     main()

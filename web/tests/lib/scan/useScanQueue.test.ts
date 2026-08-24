@@ -22,10 +22,12 @@ function fakeBlob(): Blob {
  * (Subtask 7c.3 DoD). */
 class FakeScanApi implements ScanApi {
   calls = 0;
+  receivedCaptureIds: string[] = [];
   constructor(private readonly behavior: (call: number) => Promise<ScanResult>) {}
 
-  submitScan(): Promise<ScanResult> {
+  submitScan(_blob: Blob, _accessToken: string | null, captureId: string): Promise<ScanResult> {
     this.calls++;
+    this.receivedCaptureIds.push(captureId);
     return this.behavior(this.calls);
   }
 }
@@ -80,5 +82,32 @@ describe("useScanQueue", () => {
     await waitFor(() => expect(result.current.sheets[0].state).toBe("submitted"));
     expect(api.calls).toBe(2);
     expect(result.current.sheets[0].result).toEqual(fakeResult);
+  });
+
+  test("retrying a failed sheet sends the same capture_id as the original attempt", async () => {
+    // The backend dedupes on capture_id (0005_scan_capture_id migration) -
+    // a retry must reuse the id from the original attempt, not generate a
+    // fresh one, or a request that actually succeeded server-side despite a
+    // lost response would create a duplicate submission on retry.
+    const api = new FakeScanApi(async (call) => {
+      if (call === 1) throw new TypeError("Failed to fetch");
+      return fakeResult;
+    });
+    const { result } = renderHook(() => useScanQueue(api, async () => "token"));
+
+    act(() => {
+      result.current.submit(fakeBlob());
+    });
+    await waitFor(() => expect(result.current.sheets[0].state).toBe("failed"));
+
+    const id = result.current.sheets[0].id;
+    act(() => {
+      result.current.retry(id);
+    });
+    await waitFor(() => expect(result.current.sheets[0].state).toBe("submitted"));
+
+    expect(api.receivedCaptureIds).toHaveLength(2);
+    expect(api.receivedCaptureIds[0]).toBe(api.receivedCaptureIds[1]);
+    expect(api.receivedCaptureIds[0]).toBeTruthy();
   });
 });
