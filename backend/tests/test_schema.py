@@ -52,6 +52,7 @@ EXPECTED_COLUMNS = {
         "status": ("text", "NO"),
         "created_at": ("timestamp with time zone", "NO"),
         "capture_id": ("text", "YES"),
+        "name_manually_edited": ("boolean", "NO"),
     },
     "answers": {
         "id": ("uuid", "NO"),
@@ -62,6 +63,8 @@ EXPECTED_COLUMNS = {
         "flagged": ("boolean", "NO"),
         "correct": ("boolean", "YES"),
         "score": ("double precision", "YES"),
+        "manually_edited": ("boolean", "NO"),
+        "edited_at": ("timestamp with time zone", "YES"),
     },
 }
 

@@ -31,7 +31,7 @@ from app.ml.omr.classify import classify_bubble
 from app.ml.omr.extract import extract_bubble_crops
 from app.ml.omr.name_ocr import detect_name
 from app.ml.omr.qr_decode import decode_qr_from_page
-from app.models.scoring import DetectedAnswer
+from app.models.scoring import AnswerCorrectionRequest, DetectedAnswer
 from app.services import submissions as submissions_service
 from app.services.auth import AuthUser, ensure_user_row, get_current_user
 from app.services.pdf_gen import load_template
@@ -194,9 +194,17 @@ def _serialize_submission_summary(row: dict) -> dict:
     }
 
 
+def _serialize_answer(a: dict) -> dict:
+    return {
+        **a,
+        "id": str(a["id"]),
+        "edited_at": a["edited_at"].isoformat() if a.get("edited_at") else None,
+    }
+
+
 def _serialize_submission_detail(row: dict) -> dict:
     serialized = _serialize_submission_summary(row)
-    serialized["answers"] = [{**a, "id": str(a["id"])} for a in row["answers"]]
+    serialized["answers"] = [_serialize_answer(a) for a in row["answers"]]
     return serialized
 
 
@@ -241,14 +249,20 @@ async def get_submission(submission_id: UUID, user: AuthUser = Depends(get_curre
 async def correct_answer(
     submission_id: UUID,
     answer_id: UUID,
-    correct_option: str = Body(embed=True),
+    payload: AnswerCorrectionRequest,
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
+    """Set the option a professor says the student marked on one answer.
+
+    Works on any answer of any submission the professor owns - flagged or
+    not, needs_review or already finalized - so the results screen can fix
+    a scan misread at any time. `marked_option: null` records a blank.
+    """
     with get_connection() as conn:
         ensure_user_row(conn, user)
         _require_submission_owner(conn, submission_id, user)
         updated = submissions_service.apply_manual_correction(
-            conn, submission_id, answer_id, correct_option.strip().upper()
+            conn, submission_id, answer_id, payload.marked_option
         )
     if updated is None:
         raise HTTPException(status_code=404, detail="answer not found for this submission")

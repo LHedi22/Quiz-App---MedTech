@@ -1,7 +1,15 @@
 """Persists scan/grade results and backs the professor-review workflow
 (Subtask 6.4): create a submission + its answers from a `ScoringResult`,
 list submissions needing review, and apply a professor's manual correction
-to a flagged answer or a flagged/misread student name.
+to an answer or the student name.
+
+The results screen (web) lets a professor open ANY submission and change ANY
+answer or the name - not only the flagged ones, and not only while a
+submission is `needs_review` - so `apply_manual_correction` /
+`apply_name_correction` are written to be safe on an already-finalized
+submission too: they always re-run `_recompute_submission_status`, which can
+keep a submission finalized, or push it back to `needs_review` if a gate is
+still tripped elsewhere.
 """
 
 from __future__ import annotations
@@ -139,7 +147,7 @@ def create_submission(
 
 _SUBMISSION_COLUMNS = (
     "id, version_id, student_id, student_name, name_confidence, name_flagged, "
-    "total_score, status, created_at"
+    "name_manually_edited, total_score, status, created_at"
 )
 
 
@@ -155,9 +163,23 @@ def get_submission_with_answers(conn: psycopg.Connection, submission_id: UUID) -
         cols = [c.name for c in cur.description]
         submission = dict(zip(cols, row))
 
+        # Join the canonical question (by order_index == question_no) so the
+        # results screen can show the professor the question text and the
+        # master-key answer next to what the student marked, without a
+        # second round-trip. LEFT JOIN so a stray answer row with no
+        # matching question still renders (key_option/question_text null).
         cur.execute(
-            "select id, question_no, detected_option, confidence, flagged, correct, score "
-            "from answers where submission_id = %s order by question_no",
+            """
+            select a.id, a.question_no, a.detected_option, a.confidence, a.flagged,
+                   a.correct, a.score, a.manually_edited, a.edited_at,
+                   q.text as question_text, q.correct_option as key_option
+            from answers a
+            join submissions s on s.id = a.submission_id
+            join versions v on v.id = s.version_id
+            left join questions q on q.quiz_id = v.quiz_id and q.order_index = a.question_no
+            where a.submission_id = %s
+            order by a.question_no
+            """,
             (submission_id,),
         )
         cols = [c.name for c in cur.description]
@@ -218,7 +240,10 @@ def _recompute_submission_status(cur: psycopg.Cursor, submission_id: UUID) -> No
         )
     else:
         cur.execute("select score from answers where submission_id = %s", (submission_id,))
-        total = sum(r[0] for r in cur.fetchall())
+        # No answer is flagged here, so every score is a real number - but a
+        # professor-blanked answer stores 0.0 explicitly and a defensive
+        # `or 0.0` keeps a stray NULL from turning the total into a TypeError.
+        total = sum((r[0] or 0.0) for r in cur.fetchall())
         cur.execute(
             "update submissions set status = 'finalized', total_score = %s where id = %s",
             (total, submission_id),
@@ -229,13 +254,22 @@ def apply_manual_correction(
     conn: psycopg.Connection,
     submission_id: UUID,
     answer_id: UUID,
-    correct_option: str,
+    marked_option: str | None,
 ) -> dict | None:
-    """A professor manually sets the correct detected option on a flagged
-    answer: recomputes that answer's correct/score against the quiz's master
-    key, un-flags it, and - if every answer on the submission is now
-    resolved - flips the submission's status to finalized and recomputes its
-    total_score.
+    """A professor manually sets which option a student marked on an answer -
+    any answer, flagged or not, on a submission of any status (the results
+    screen lets them correct a scan misread even after it finalized). This
+    recomputes that answer's correct/score against the quiz's master key,
+    un-flags it, stamps `manually_edited`/`edited_at`, and re-runs the
+    status/total recompute (which can keep the submission finalized, flip a
+    resolved one to finalized, or send one back to needs_review if a gate
+    still trips elsewhere).
+
+    `marked_option` is one of A-D, or None for "student left this blank":
+    blank scores 0 and is never `correct`, matching how the OMR pipeline
+    treats a row with zero filled bubbles once a human has confirmed it.
+    The caller validates the letter (see `AnswerCorrectionRequest`); this
+    trusts that.
 
     Returns None if the answer doesn't belong to that submission (a distinct,
     checkable outcome rather than silently updating the wrong row).
@@ -268,15 +302,16 @@ def apply_manual_correction(
         )
         expected = cur.fetchone()[0]
 
-        correct = correct_option == expected
+        correct = marked_option is not None and marked_option == expected
         score = 1.0 if correct else 0.0
         cur.execute(
             """
             update answers
-            set detected_option = %s, correct = %s, score = %s, flagged = false
+            set detected_option = %s, correct = %s, score = %s, flagged = false,
+                manually_edited = true, edited_at = now()
             where id = %s
             """,
-            (correct_option, correct, score, answer_id),
+            (marked_option, correct, score, answer_id),
         )
 
         _recompute_submission_status(cur, submission_id)
@@ -290,10 +325,12 @@ def apply_name_correction(
     submission_id: UUID,
     student_name: str,
 ) -> dict | None:
-    """A professor manually confirms/corrects a flagged (or misread) student
-    name: sets student_name, clears name_flagged, and - if every answer is
-    also resolved - finalizes the submission, same as apply_manual_correction
-    does for answers.
+    """A professor manually confirms/corrects the student name: sets
+    student_name, clears name_flagged, marks name_manually_edited, and - if
+    every answer is also resolved - finalizes the submission, same as
+    apply_manual_correction does for answers. Works whether or not the name
+    was flagged: the results screen lets a professor fix a name on an
+    already-finalized submission too.
 
     Returns None if the submission doesn't exist (checkable, not silent).
     """
@@ -303,7 +340,8 @@ def apply_name_correction(
             return None
 
         cur.execute(
-            "update submissions set student_name = %s, name_flagged = false where id = %s",
+            "update submissions set student_name = %s, name_flagged = false, "
+            "name_manually_edited = true where id = %s",
             (student_name, submission_id),
         )
 

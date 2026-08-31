@@ -87,6 +87,13 @@ def seeded_quiz_with_mixed_submissions():
                 "insert into submissions (id, version_id, status) values (%s, %s, 'pending')",
                 (pending_id, version_id),
             )
+            # finalized submission: one clean, correct answer (key is 'A').
+            cur.execute(
+                "insert into answers (submission_id, question_no, detected_option, "
+                "confidence, flagged, correct, score) "
+                "values (%s, 1, 'A', 0.98, false, true, 1.0)",
+                (finalized_id,),
+            )
             cur.execute(
                 "insert into answers "
                 "(submission_id, question_no, detected_option, confidence, flagged) "
@@ -191,3 +198,146 @@ def test_get_submission_detail_requires_ownership(seeded_quiz_with_mixed_submiss
     finally:
         run_sql("delete from users where id = %s", (other_id,))
         run_sql("delete from auth.users where id = %s", (other_id,))
+
+
+# ---- full-submission review + answer editing (results screen) --------------
+
+
+def _only_answer(fixture: dict, submission_key: str) -> dict:
+    response = client.get(
+        f"/submissions/{fixture[submission_key]}", headers=auth_headers(fixture["token"])
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["answers"]) == 1
+    return body["answers"][0]
+
+
+def test_submission_detail_includes_question_text_and_answer_key(
+    seeded_quiz_with_mixed_submissions,
+):
+    fixture = seeded_quiz_with_mixed_submissions
+    answer = _only_answer(fixture, "finalized_id")
+    assert answer["question_text"] == "Q1?"
+    assert answer["key_option"] == "A"
+    assert answer["manually_edited"] is False
+    assert answer["edited_at"] is None
+
+
+def test_professor_edits_a_non_flagged_answer_on_a_finalized_submission(
+    seeded_quiz_with_mixed_submissions,
+):
+    """The finalized submission's one answer is correct ('A', score 1.0).
+    The professor changes it to 'B' (a scan misread caught later): the
+    answer re-scores to wrong, the submission stays finalized, its total
+    drops to 0, and the answer is marked manually edited."""
+    fixture = seeded_quiz_with_mixed_submissions
+    answer = _only_answer(fixture, "finalized_id")
+
+    response = client.patch(
+        f"/submissions/{fixture['finalized_id']}/answers/{answer['id']}",
+        json={"marked_option": "B"},
+        headers=auth_headers(fixture["token"]),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "finalized"
+    assert body["total_score"] == 0.0
+    edited = body["answers"][0]
+    assert edited["detected_option"] == "B"
+    assert edited["correct"] is False
+    assert edited["score"] == 0.0
+    assert edited["manually_edited"] is True
+    assert edited["edited_at"] is not None
+
+
+def test_professor_can_blank_an_answer(seeded_quiz_with_mixed_submissions):
+    fixture = seeded_quiz_with_mixed_submissions
+    answer = _only_answer(fixture, "finalized_id")
+
+    response = client.patch(
+        f"/submissions/{fixture['finalized_id']}/answers/{answer['id']}",
+        json={"marked_option": None},
+        headers=auth_headers(fixture["token"]),
+    )
+    assert response.status_code == 200, response.text
+    edited = response.json()["answers"][0]
+    assert edited["detected_option"] is None
+    assert edited["correct"] is False
+    assert edited["score"] == 0.0
+    assert edited["manually_edited"] is True
+
+
+def test_correcting_the_flagged_answer_finalizes_the_submission(
+    seeded_quiz_with_mixed_submissions,
+):
+    fixture = seeded_quiz_with_mixed_submissions
+    answer = _only_answer(fixture, "needs_review_id")
+    assert answer["flagged"] is True
+
+    response = client.patch(
+        f"/submissions/{fixture['needs_review_id']}/answers/{answer['id']}",
+        json={"marked_option": "A"},
+        headers=auth_headers(fixture["token"]),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "finalized"
+    assert body["total_score"] == 1.0
+    assert body["answers"][0]["flagged"] is False
+    assert body["answers"][0]["correct"] is True
+
+
+def test_invalid_marked_option_is_rejected(seeded_quiz_with_mixed_submissions):
+    fixture = seeded_quiz_with_mixed_submissions
+    answer = _only_answer(fixture, "finalized_id")
+
+    response = client.patch(
+        f"/submissions/{fixture['finalized_id']}/answers/{answer['id']}",
+        json={"marked_option": "Z"},
+        headers=auth_headers(fixture["token"]),
+    )
+    assert response.status_code == 422
+
+
+def test_legacy_correct_option_field_still_accepted(seeded_quiz_with_mixed_submissions):
+    fixture = seeded_quiz_with_mixed_submissions
+    answer = _only_answer(fixture, "finalized_id")
+
+    response = client.patch(
+        f"/submissions/{fixture['finalized_id']}/answers/{answer['id']}",
+        json={"correct_option": "b"},
+        headers=auth_headers(fixture["token"]),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["answers"][0]["detected_option"] == "B"
+
+
+def test_answer_edit_requires_ownership(seeded_quiz_with_mixed_submissions):
+    fixture = seeded_quiz_with_mixed_submissions
+    answer = _only_answer(fixture, "finalized_id")
+    other_id, other_token = create_auth_user_and_token(f"other-{uuid.uuid4().hex[:8]}@example.com")
+    try:
+        response = client.patch(
+            f"/submissions/{fixture['finalized_id']}/answers/{answer['id']}",
+            json={"marked_option": "B"},
+            headers=auth_headers(other_token),
+        )
+        assert response.status_code == 404
+    finally:
+        run_sql("delete from users where id = %s", (other_id,))
+        run_sql("delete from auth.users where id = %s", (other_id,))
+
+
+def test_name_edit_marks_name_manually_edited(seeded_quiz_with_mixed_submissions):
+    fixture = seeded_quiz_with_mixed_submissions
+    response = client.patch(
+        f"/submissions/{fixture['finalized_id']}/name",
+        json={"student_name": "Ada Lovelace"},
+        headers=auth_headers(fixture["token"]),
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["student_name"] == "Ada Lovelace"
+    assert body["name_manually_edited"] is True
+    assert body["status"] == "finalized"

@@ -34,12 +34,16 @@ MIGRATIONS_DIR = Path(__file__).parent
 
 # Order matters: 0002 depends on 0001's tables existing, 0003 seeds data
 # into tables 0001/0002 create and secure, 0004 adds the name-detection
-# columns to the submissions table 0001 already created.
+# columns to the submissions table 0001 already created, 0005 adds the
+# scan-idempotency column, 0006 adds the manual-edit audit markers - each
+# later file only ALTERs tables the earlier ones created.
 MIGRATION_FILES = [
     "0001_core_tables.up.sql",
     "0002_rls_policies.up.sql",
     "0003_seed_demo_data.sql",
     "0004_student_name.up.sql",
+    "0005_scan_capture_id.up.sql",
+    "0006_manual_edit_audit.up.sql",
 ]
 
 

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, Field, field_validator
+
+# Every question is printed with exactly four options (CLAUDE.md: MCQ only,
+# fixed A-D layout). A professor's manual answer edit must be one of these
+# or an explicit blank.
+VALID_ANSWER_OPTIONS = ("A", "B", "C", "D")
 
 
 class QuestionForScoring(BaseModel):
@@ -54,3 +59,30 @@ class ScoringResult(BaseModel):
     total_score: float | None  # None while any answer is flagged (status != finalized)
     status: str  # "finalized" | "needs_review"
     answers: list[ScoredAnswer]
+
+
+class AnswerCorrectionRequest(BaseModel):
+    """Body of PATCH /submissions/{id}/answers/{answer_id}: the option the
+    professor says the student actually marked. `null` means "left blank".
+
+    `correct_option` is the historical field name (it never meant the answer
+    key - always "what the student marked"); accepted as an alias so an
+    older client keeps working. The key must be present in the body either
+    way - omitting it is a 422, not a silent blank.
+    """
+
+    marked_option: str | None = Field(
+        validation_alias=AliasChoices("marked_option", "correct_option"),
+    )
+
+    @field_validator("marked_option")
+    @classmethod
+    def _normalize_option(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().upper()
+        if normalized == "":
+            return None
+        if normalized not in VALID_ANSWER_OPTIONS:
+            raise ValueError(f"marked_option must be one of {VALID_ANSWER_OPTIONS} or null (blank)")
+        return normalized
