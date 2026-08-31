@@ -159,3 +159,96 @@ test("correcting a flagged student name updates the UI live and finalizes when n
 
   await runSql(`delete from submissions where id = $1`, [submissionId]);
 });
+
+test("professor changes an answer on an already-finalized submission; score and edited marker update live", async ({
+  page,
+}) => {
+  const email = uniqueEmail();
+  await page.goto("/signup");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("correct-horse-battery-staple");
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await expect(page).toHaveURL(/\/quizzes$/);
+
+  await page.getByRole("link", { name: "New quiz" }).click();
+  await page.getByLabel("Quiz title").fill(`Finalized edit test ${Date.now()}`);
+  await page.getByRole("button", { name: "Create quiz" }).click();
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles(path.join(__dirname, "fixtures", "valid.xlsx"));
+  await page.getByRole("button", { name: "Upload" }).click();
+  await expect(page.getByText(/questions parsed and saved/)).toBeVisible();
+  await page.getByRole("button", { name: "Continue to generate versions" }).click();
+  await expect(page).toHaveURL(/\/quizzes\/[0-9a-f-]+$/);
+  const quizId = page.url().match(/\/quizzes\/([0-9a-f-]+)$/)![1];
+
+  await page.getByLabel("Number of versions").fill("1");
+  await page.getByRole("button", { name: "Generate versions" }).click();
+  await expect(page.getByTestId("download-pdf")).toHaveCount(1);
+
+  const versionRows = await queryRows<{ id: string }>(
+    `select id from versions where quiz_id = $1 limit 1`,
+    [quizId],
+  );
+  const versionId = versionRows[0].id;
+  const questionRows = await queryRows<{ order_index: number; correct_option: string }>(
+    `select order_index, correct_option from questions where quiz_id = $1 order by order_index limit 2`,
+    [quizId],
+  );
+  const [q1, q2] = questionRows;
+
+  // A fully finalized submission: both answers clean and correct, score 2.
+  const submissionId = randomUUID();
+  const answer1Id = randomUUID();
+  const answer2Id = randomUUID();
+  await runSql(
+    `insert into submissions (id, version_id, student_id, total_score, status)
+     values ($1, $2, 'finalized-student', 2.0, 'finalized')`,
+    [submissionId, versionId],
+  );
+  await runSql(
+    `insert into answers (id, submission_id, question_no, detected_option, confidence, flagged, correct, score)
+     values
+       ($1, $3, $4, $5, 0.97, false, true, 1.0),
+       ($2, $3, $6, $7, 0.97, false, true, 1.0)`,
+    [
+      answer1Id,
+      answer2Id,
+      submissionId,
+      q1.order_index,
+      q1.correct_option,
+      q2.order_index,
+      q2.correct_option,
+    ],
+  );
+
+  await page.goto(`/submissions/${submissionId}`);
+  await expect(page.getByTestId("submission-status")).toHaveText("finalized");
+  // Every answer is shown even though none are flagged.
+  await expect(page.getByTestId("answer-row")).toHaveCount(2);
+  await expect(page.getByText("This submission is finalized.")).toBeVisible();
+
+  // Change question 1 to a definitely-wrong option (whatever the key isn't).
+  const wrongOption = ["A", "B", "C", "D"].find((o) => o !== q1.correct_option)!;
+  const targetRow = page.locator(
+    `[data-testid="answer-row"][data-question-no="${q1.order_index}"]`,
+  );
+  await targetRow.getByLabel("Correct option").selectOption(wrongOption);
+  await targetRow.getByRole("button", { name: "Save" }).click();
+
+  // Stays finalized, score drops to 1, and the row shows an edited marker.
+  await expect(page.getByTestId("submission-status")).toHaveText("finalized");
+  await expect(targetRow.getByTestId("answer-edited-badge")).toBeVisible();
+  await expect(page.getByText(/Score:\s*1\b/)).toBeVisible();
+
+  const dbRow = await queryRows<{ total_score: number; manually_edited: boolean }>(
+    `select s.total_score, a.manually_edited
+       from submissions s join answers a on a.submission_id = s.id
+      where s.id = $1 and a.question_no = $2`,
+    [submissionId, q1.order_index],
+  );
+  expect(dbRow[0].total_score).toBe(1);
+  expect(dbRow[0].manually_edited).toBe(true);
+
+  await runSql(`delete from submissions where id = $1`, [submissionId]);
+});

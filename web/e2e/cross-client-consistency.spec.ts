@@ -51,10 +51,15 @@ test("a scanned submission appears correctly in the dashboard, and a web correct
 
   await row.getByRole("link", { name: "Review" }).click();
   await expect(page).toHaveURL(new RegExp(`/submissions/${scanResult.submission_id}$`));
-  await expect(page.getByText(`Question ${flaggedQuestionNo}`)).toBeVisible();
 
-  await page.getByLabel("Correct option").selectOption(correctOption);
-  await page.getByRole("button", { name: "Save" }).click();
+  // The full answer sheet renders an editable row per question; the single
+  // flagged one carries data-testid="flagged-answer" and the question number.
+  const flaggedAnswer = page.getByTestId("flagged-answer");
+  await expect(flaggedAnswer).toHaveCount(1);
+  await expect(flaggedAnswer).toHaveAttribute("data-question-no", String(flaggedQuestionNo));
+
+  await flaggedAnswer.getByLabel("Correct option").selectOption(correctOption);
+  await flaggedAnswer.getByRole("button", { name: "Save" }).click();
   await expect(page.getByTestId("submission-status")).toHaveText("finalized");
 
   // DoD 2: reflected in mobile's next status fetch - GET /submissions/{id}

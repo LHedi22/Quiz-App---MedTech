@@ -41,6 +41,7 @@ export interface SubmissionSummary {
   student_name: string | null;
   name_confidence: number | null;
   name_flagged: boolean;
+  name_manually_edited: boolean;
   total_score: number | null;
   status: SubmissionStatus;
   created_at: string;
@@ -54,6 +55,14 @@ export interface AnswerDetail {
   flagged: boolean;
   correct: boolean | null;
   score: number | null;
+  /** Canonical question text + master-key answer, joined server-side so the
+   * review screen can show them next to what the student marked. Null only
+   * if the answer row has no matching canonical question. */
+  question_text: string | null;
+  key_option: string | null;
+  /** True once a professor has set this answer's marked option by hand. */
+  manually_edited: boolean;
+  edited_at: string | null;
 }
 
 export interface SubmissionDetail extends SubmissionSummary {

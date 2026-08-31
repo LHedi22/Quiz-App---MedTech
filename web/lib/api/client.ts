@@ -143,10 +143,14 @@ export function getSubmission(
   return request<SubmissionDetail>(`/submissions/${submissionId}`, accessToken);
 }
 
+/** Set the option the professor says the student marked on one answer.
+ * `markedOption` is "A"|"B"|"C"|"D", or null for a blank/unanswered
+ * question. Works on any answer of a submission the professor owns,
+ * regardless of the submission's status or whether the answer was flagged. */
 export function correctAnswer(
   submissionId: string,
   answerId: string,
-  correctOption: string,
+  markedOption: string | null,
   accessToken: string,
 ): Promise<SubmissionDetail> {
   return request<SubmissionDetail>(
@@ -155,7 +159,7 @@ export function correctAnswer(
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ correct_option: correctOption }),
+      body: JSON.stringify({ marked_option: markedOption }),
     },
   );
 }
