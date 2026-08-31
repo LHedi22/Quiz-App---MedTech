@@ -11,6 +11,7 @@ venv/
 build/
 dist/
 backend/tests/test_output/
+backend/.scan_diag_images/
 testquizsubmissions/
 
 # Flutter / Dart

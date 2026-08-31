@@ -27,10 +27,31 @@ def generate_bubble_crop(
     stray_mark: bool = False,
     partial_erasure: bool = False,
     faint: bool = False,
+    max_translate_px: float = 4.0,
+    blur_prob: float = 0.5,
 ) -> np.ndarray:
     """A single synthetic grayscale bubble crop. `fill_fraction` in [0, 1]
     controls how much of the bubble's area is inked (area-proportional, not
-    radius-proportional, to mimic how a real partial fill looks)."""
+    radius-proportional, to mimic how a real partial fill looks).
+
+    `max_translate_px`/`blur_prob` simulate a real camera-photo crop rather
+    than a pixel-perfect digital rasterization - mild robustness margin,
+    confirmed live (2026-08-31) not to affect either the accuracy or
+    ambiguous-routing DoDs.
+
+    Real-photo *illumination* (a genuine page-wide lighting/shadow
+    gradient, confirmed live: pure background pixel value dropping from
+    ~225 near the top of a real photographed page to ~202 near the bottom)
+    is deliberately NOT simulated here - training on a wide brightness
+    range was tried first and reverted, since it also eroded sensitivity to
+    genuinely-faint real marks (both phenomena reduce absolute darkness in
+    the same features this classifier reads, so training broad tolerance
+    for one broadens tolerance for the other). Corrected instead at the
+    feature-extraction layer (`features.py`'s per-crop background
+    normalization), which decouples "ambient lighting" from "mark quality"
+    entirely rather than asking training data to cover both at once. See
+    real_camera_scan_alignment_gap memory's 2026-08-31 update for the full
+    evidence trail, including the reverted attempt."""
     img = np.full((BASE_SIZE, BASE_SIZE), 255, dtype=np.uint8)
     center = (BASE_SIZE // 2, BASE_SIZE // 2)
     cv2.circle(img, center, BUBBLE_RADIUS, color=OUTLINE_GRAY, thickness=2)
@@ -72,8 +93,22 @@ def generate_bubble_crop(
         noise = rng.normal(0, noise_std, img.shape)
         img = np.clip(img.astype(np.float64) + noise, 0, 255).astype(np.uint8)
 
+    # Translation folded into the same affine warp as the existing rotation
+    # (not a separate step) - a real off-center crop is off-center in a
+    # rotated frame too, not axis-aligned.
     rotation_matrix = cv2.getRotationMatrix2D(center, float(rng.uniform(-10, 10)), 1.0)
+    if max_translate_px > 0:
+        rotation_matrix[0, 2] += float(rng.uniform(-max_translate_px, max_translate_px))
+        rotation_matrix[1, 2] += float(rng.uniform(-max_translate_px, max_translate_px))
     img = cv2.warpAffine(img, rotation_matrix, (BASE_SIZE, BASE_SIZE), borderValue=255)
+
+    # A real camera photo is never pixel-crisp the way a digital
+    # rasterization is - mild blur simulates the same softness that made a
+    # slightly-off-center real crop's edge content bleed into what should
+    # read as pure background (see the docstring above).
+    if blur_prob > 0 and rng.random() < blur_prob:
+        ksize = int(rng.choice([3, 5]))
+        img = cv2.GaussianBlur(img, (ksize, ksize), 0)
 
     return img
 

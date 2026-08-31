@@ -31,7 +31,12 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY app ./app
 
-RUN pip install --no-cache-dir -e .
+# --timeout/--retries: this environment's network has been observed to
+# stall mid-download on large wheels (opencv/pymupdf) - pip's 15s default
+# read timeout trips before those finish, aborting the whole build. A
+# longer per-read timeout plus retries lets it resume past a transient
+# stall instead of failing the build outright.
+RUN pip install --no-cache-dir --timeout 120 --retries 5 -e .
 
 # Cloud Run injects $PORT and expects the container to listen on it (default
 # 8080 locally/for `docker run`, matching CLOUD_RUN_SERVICE_NAME's own

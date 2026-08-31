@@ -17,6 +17,8 @@ mis-score.
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 from uuid import UUID
 
 import cv2
@@ -40,6 +42,29 @@ logger = logging.getLogger("scan_diagnostics")
 
 DPI = 200
 NUM_OPTIONS = 4
+
+# TEMP DIAGNOSTIC (2026-08-31): all real professor submissions are 422ing
+# on alignment_failed with an inconsistent found-marker count (4/5/7 across
+# retries of what's presumably the same physical page) - the existing
+# scan_diag logging only ever recorded shape metadata, never the actual
+# pixels, which isn't enough to root-cause a contour-detection problem from.
+# Saving the raw upload lets this be diagnosed from real evidence instead of
+# guessed at blind. Off unless SCAN_DIAG_SAVE_DIR is set so this never
+# activates in a context nobody's actively debugging in. Remove once
+# resolved - see real_camera_scan_alignment_gap memory.
+_SCAN_DIAG_SAVE_DIR = os.environ.get("SCAN_DIAG_SAVE_DIR")
+
+
+def _save_diag_image(capture_id: str | None, suffix: str, bgr: np.ndarray) -> None:
+    if not _SCAN_DIAG_SAVE_DIR:
+        return
+    try:
+        out_dir = Path(_SCAN_DIAG_SAVE_DIR)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        name = f"{capture_id or 'unknown'}_{suffix}.jpg"
+        cv2.imwrite(str(out_dir / name), bgr)
+    except Exception:
+        logger.exception("scan_diag capture_id=%s failed to save diagnostic image", capture_id)
 
 
 def _detect_answers_on_page(
@@ -92,6 +117,7 @@ async def scan_submission(
         capture_id,
         bgr.shape[:2],
     )
+    _save_diag_image(capture_id, "raw_upload", bgr)
 
     # Alignment doesn't depend on which version was scanned - it only needs
     # the shared physical page template - so it can run before the QR is even

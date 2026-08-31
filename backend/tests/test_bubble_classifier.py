@@ -5,7 +5,9 @@ from __future__ import annotations
 import ast
 import inspect
 from collections import Counter
+from pathlib import Path
 
+import cv2
 import numpy as np
 import pytest
 
@@ -19,6 +21,8 @@ from app.ml.omr.classify import CONFIDENCE_THRESHOLD, classify_bubble
 
 HELD_OUT_ACCURACY_TARGET = 0.95
 AMBIGUOUS_ROUTING_TARGET = 0.90
+
+REAL_SCANS_DIR = Path(__file__).parent / "fixtures" / "real_scans"
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -142,6 +146,40 @@ def test_classify_bubble_loads_the_saved_artifact_and_runs_standalone(trained_mo
 
     assert label in {"filled", "empty", "ambiguous"}
     assert 0.0 <= confidence <= 1.0
+
+
+def test_real_camera_photo_bubbles_classify_correctly_and_confidently(trained_model):
+    """Regression fixture for the 2026-08-31 real-submission debugging
+    session (see real_camera_scan_alignment_gap memory's 2026-08-31
+    update): a genuinely-successful real scan still had 7 of its 10
+    answers wrongly flagged "ambiguous" - not because anything was
+    misdetected (every one of the 40 real bubble crops here was, and still
+    is, on the correct side of filled/empty), but because a real page-wide
+    lighting gradient (measured: pure background pixel value dropping from
+    ~225 near the top of the photographed page to ~202 near the bottom)
+    pushed genuinely-empty bubbles' confidence below `CONFIDENCE_THRESHOLD`
+    in a smooth pattern that grew toward the bottom of the page. Fixed via
+    per-crop background normalization in `features.py`, not by touching the
+    threshold or by training on a wide brightness range (tried and reverted
+    - see the memory entry). These are the actual bubble crops extracted
+    from that real photo (`app/ml/omr/extract.py`'s real output, not a
+    synthetic re-creation) - every one must classify correctly AND
+    confidently, or this exact real failure has regressed."""
+    crop_paths = sorted(REAL_SCANS_DIR.glob("*.png"))
+    assert len(crop_paths) == 40, "sanity: all 10 rows x 4 options present"
+
+    failures = []
+    for path in crop_paths:
+        expected_label = "filled" if "_filled" in path.stem else "empty"
+        bgr = cv2.imread(str(path))
+        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        label, confidence = classify_bubble(rgb)
+        if label != expected_label:
+            failures.append(f"{path.name}: expected {expected_label}, got {label} ({confidence:.3f})")
+
+    assert not failures, "real-photo bubbles misclassified or wrongly flagged ambiguous:\n" + "\n".join(
+        failures
+    )
 
 
 def test_all_ambiguous_and_unambiguous_label_kinds_seen_at_least_once():
