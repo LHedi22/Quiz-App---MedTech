@@ -187,11 +187,23 @@ def get_submission_with_answers(conn: psycopg.Connection, submission_id: UUID) -
     return submission
 
 
-def list_submissions_by_status(conn: psycopg.Connection, status: str) -> list[dict]:
+def list_submissions_by_status(conn: psycopg.Connection, status: str, owner_id: UUID) -> list[dict]:
+    """All submissions of a given status across every quiz the professor
+    owns (joined through `versions.quiz_id`). Scoped to `owner_id` at the
+    API layer since there is no RLS safety net - one professor must never
+    see another's student rows (CLAUDE.md Section 4)."""
+    prefixed_columns = ", ".join(f"s.{c.strip()}" for c in _SUBMISSION_COLUMNS.split(","))
     with conn.cursor() as cur:
         cur.execute(
-            f"select {_SUBMISSION_COLUMNS} from submissions where status = %s order by created_at",
-            (status,),
+            f"""
+            select {prefixed_columns}
+            from submissions s
+            join versions v on v.id = s.version_id
+            join quizzes q on q.id = v.quiz_id
+            where s.status = %s and q.owner_id = %s
+            order by s.created_at
+            """,
+            (status, owner_id),
         )
         cols = [c.name for c in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]

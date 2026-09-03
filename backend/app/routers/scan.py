@@ -209,9 +209,12 @@ def _serialize_submission_detail(row: dict) -> dict:
 
 
 @router.get("/submissions")
-async def list_submissions(status: str = "needs_review") -> list[dict]:
+async def list_submissions(
+    status: str = "needs_review", user: AuthUser = Depends(get_current_user)
+) -> list[dict]:
     with get_connection() as conn:
-        rows = submissions_service.list_submissions_by_status(conn, status)
+        ensure_user_row(conn, user)
+        rows = submissions_service.list_submissions_by_status(conn, status, user.id)
     return [_serialize_submission_summary(row) for row in rows]
 
 

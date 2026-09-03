@@ -438,15 +438,47 @@ def test_professor_manual_correction_updates_score_and_status(seeded_quiz):
 def test_get_submissions_needs_review_lists_flagged_submission(seeded_quiz):
     body, _ = _scan_with_one_multi_mark(seeded_quiz)
     submission_id = body["submission_id"]
+    headers = auth_headers(seeded_quiz["token"])
 
-    response = client.get("/submissions", params={"status": "needs_review"})
+    response = client.get("/submissions", params={"status": "needs_review"}, headers=headers)
     assert response.status_code == 200
     ids = [row["id"] for row in response.json()]
     assert submission_id in ids
 
-    response_finalized = client.get("/submissions", params={"status": "finalized"})
+    response_finalized = client.get("/submissions", params={"status": "finalized"}, headers=headers)
     assert response_finalized.status_code == 200
     assert submission_id not in [row["id"] for row in response_finalized.json()]
+
+
+def test_get_submissions_requires_auth(seeded_quiz):
+    _scan_with_one_multi_mark(seeded_quiz)
+
+    response = client.get("/submissions", params={"status": "needs_review"})
+    assert response.status_code in (401, 422)
+
+
+def test_get_submissions_scoped_to_owning_professor(seeded_quiz):
+    """Professor B must never see professor A's student rows via this route -
+    there is no RLS safety net, so the API-layer owner scoping is the only
+    thing enforcing isolation here (CLAUDE.md Section 4)."""
+    body, _ = _scan_with_one_multi_mark(seeded_quiz)
+    submission_id = body["submission_id"]
+
+    other_email = f"scan-other-{uuid.uuid4().hex[:8]}@example.com"
+    other_user_id, other_token = create_auth_user_and_token(other_email)
+    try:
+        response = client.get(
+            "/submissions",
+            params={"status": "needs_review"},
+            headers=auth_headers(other_token),
+        )
+        assert response.status_code == 200
+        assert submission_id not in [row["id"] for row in response.json()]
+    finally:
+        run_sql(
+            f"delete from users where id = '{other_user_id}';"
+            f"delete from auth.users where id = '{other_user_id}';"
+        )
 
 
 # ---- student-name detection DoD ---------------------------------------------
