@@ -20,15 +20,14 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL!;
 // clear message instead of a round-trip that ends in a generic rejection.
 const MIN_CAPTURE_DIMENSION_PX = 720;
 
-async function tryGetAccessToken(): Promise<string | null> {
-  try {
-    return await getAccessToken();
-  } catch {
-    // /scan has no auth requirement server-side (see web/lib/scan/scanApi.ts) -
-    // an anonymous professor session just submits without a token, it never
-    // blocks the scan.
-    return null;
-  }
+async function requireAccessToken(): Promise<string> {
+  // The web /scan screen lives inside the authenticated (app) route group,
+  // so a session is always expected here. `POST /scan` is still open
+  // server-side for the Flutter offline path, but the web app must never
+  // submit a scan without a token: if the session has expired, let the
+  // error propagate so the sheet lands in "not submitted - retry" rather
+  // than creating an anonymous submission (web-app audit A2).
+  return getAccessToken();
 }
 
 /** Browser camera capture screen (Subtasks 7c.2-7c.4). Mirrors mobile's
@@ -48,7 +47,7 @@ export default function ScanPage() {
   const [capturing, setCapturing] = useState(false);
 
   const scanApi = useMemo(() => new RealScanApi(API_BASE_URL), []);
-  const { sheets, submit, retry } = useScanQueue(scanApi, tryGetAccessToken);
+  const { sheets, submit, retry } = useScanQueue(scanApi, requireAccessToken);
   const online = useReachability(`${API_BASE_URL}/health`);
   const summary = useMemo(() => summarizeSheets(sheets), [sheets]);
   const reviewIds = useMemo(() => needsReviewSubmissionIds(sheets), [sheets]);

@@ -62,6 +62,28 @@ describe("useScanQueue", () => {
     expect(result.current.sheets.some((s) => s.state === "submitted")).toBe(false);
   });
 
+  test("an expired session (getAccessToken throws) fails the sheet without ever calling submitScan", async () => {
+    // web-app audit A2: the web /scan screen is behind auth and must never
+    // submit a scan anonymously. If the session has expired, the throw from
+    // getAccessToken must land the sheet in "failed / not submitted", not
+    // reach the still-open backend route with no token.
+    const api = new FakeScanApi(async () => fakeResult);
+    const { result } = renderHook(() =>
+      useScanQueue(api, async () => {
+        throw new Error("no active session");
+      }),
+    );
+
+    act(() => {
+      result.current.submit(fakeBlob());
+    });
+
+    await waitFor(() => expect(result.current.sheets[0].state).toBe("failed"));
+    expect(api.calls).toBe(0);
+    expect(result.current.sheets[0].result).toBeUndefined();
+    expect(result.current.sheets.some((s) => s.state === "submitted")).toBe(false);
+  });
+
   test("retrying a failed sheet resubmits the same captured blob and can succeed", async () => {
     const api = new FakeScanApi(async (call) => {
       if (call === 1) throw new TypeError("Failed to fetch");

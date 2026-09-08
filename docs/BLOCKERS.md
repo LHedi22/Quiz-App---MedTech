@@ -1,5 +1,43 @@
 # Blockers
 
+## Web-app audit A2 — `POST /scan` is fully unauthenticated (backend contract decision) [OPEN 2026-09-08]
+
+**What's blocked:** deciding whether `POST /scan` (`backend/app/routers/scan.py`)
+should keep having no `Depends(get_current_user)`. Today anyone who can reach
+the backend and render/print a valid version QR can create submissions
+anonymously and pollute a professor's results dashboard.
+
+**Why this is a stop-and-ask, not a fix-it-myself:** CLAUDE.md Section 2
+rule 7 — the backend API contract is the shared boundary between clients and
+a genuine gap is "a blocker to log and ask about, not something to patch
+around unilaterally." The route was left open **deliberately** for the
+Flutter offline path (Phase 8): the mobile app has no session at scan time
+(it queues scans offline and syncs later), so it currently submits with no
+token. Requiring auth on `/scan` therefore isn't a one-line change — it
+needs a story for how the Flutter app authenticates (a service token, a
+deferred-auth handshake on sync, etc.), which is a cross-client design
+decision.
+
+**What was done now (web-side defense-in-depth, no contract change):**
+- `web/app/(app)/scan/page.tsx`: `tryGetAccessToken` (swallowed the error and
+  submitted anonymously) replaced with `requireAccessToken`, which lets an
+  expired-session error propagate so the sheet lands in "not submitted —
+  retry" instead of creating an anonymous submission. The web `/scan` screen
+  is already behind the authenticated `(app)` route group, so a token is
+  always expected there.
+- `web/lib/scan/scanApi.ts` / `web/lib/scan/useScanQueue.ts`: corrected the
+  comments that described an "anonymous professor session" as a supported
+  web mode (it is unreachable on the web — `proxy.ts` redirects anonymous
+  users to `/login`).
+- Added a `useScanQueue` test: an expired session fails the sheet without
+  ever calling `submitScan`.
+
+**What the user needs to decide:** for the backend route itself —
+(a) require auth on `/scan` and give the Flutter app a service-token /
+deferred-auth story, or (b) keep it open but document the reason explicitly
+and add rate limiting + a per-version submission cap, or (c) something else.
+No backend change made until this is answered.
+
 ## Phase 7 (Next.js migration) — backend contract gap, not a credential issue [RESOLVED 2026-08-13]
 
 **Resolution:** user chose "fix it now, then continue." Applied the same
