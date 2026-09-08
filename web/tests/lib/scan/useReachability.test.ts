@@ -40,4 +40,16 @@ describe("useReachability", () => {
     const { result } = renderHook(() => useReachability("/health", 999999));
     await waitFor(() => expect(result.current).toBe(false));
   });
+
+  test("a reachable-but-erroring backend (503) reports offline, not online", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 503 })));
+    const { result } = renderHook(() => useReachability("/health", 999999));
+    await waitFor(() => expect(result.current).toBe(false));
+  });
+
+  test("a 4xx from the ping still counts as online (the backend answered)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+    const { result } = renderHook(() => useReachability("/health", 999999));
+    await waitFor(() => expect(result.current).toBe(true));
+  });
 });

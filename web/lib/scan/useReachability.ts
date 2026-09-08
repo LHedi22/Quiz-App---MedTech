@@ -9,9 +9,10 @@ import { useEffect, useState } from "react";
  * and on an interval; goes offline immediately on the `offline` event
  * without waiting for the next ping. */
 export function useReachability(pingUrl: string, intervalMs = 10000): boolean {
-  const [online, setOnline] = useState<boolean>(() =>
-    typeof navigator === "undefined" ? true : navigator.onLine,
-  );
+  // Always start `true` so the server render and the first client render
+  // agree (no hydration mismatch if the page first loads while offline);
+  // the mount effect's `ping()` corrects it immediately.
+  const [online, setOnline] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -24,9 +25,13 @@ export function useReachability(pingUrl: string, intervalMs = 10000): boolean {
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 4000);
-        await fetch(pingUrl, { signal: controller.signal, cache: "no-store" });
+        const response = await fetch(pingUrl, { signal: controller.signal, cache: "no-store" });
         clearTimeout(timeout);
-        if (!cancelled) setOnline(true);
+        // A reachable-but-erroring backend (500/502/503, cold-start failure)
+        // is not "online" for scanning - capture would just fail into the
+        // "not submitted" state. A 4xx still counts as online (the backend
+        // answered); the health route returns 200 anyway.
+        if (!cancelled) setOnline(response.status < 500);
       } catch {
         if (!cancelled) setOnline(false);
       }
