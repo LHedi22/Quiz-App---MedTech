@@ -233,6 +233,7 @@ def test_scan_all_correct_finalizes_with_correct_db_state(seeded_quiz):
         "/scan",
         files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
         params={"student_id": "student-42"},
+        headers=auth_headers(seeded_quiz["token"]),
     )
 
     assert response.status_code == 201, response.text
@@ -273,7 +274,9 @@ def test_scan_from_a_rotated_camera_style_photo_still_decodes_and_scores(seeded_
     rotated, _forward_matrix = rotate_with_padding(page_rgb, angle_deg=8)
 
     response = client.post(
-        "/scan", files={"file": ("scan.png", _page_to_upload_bytes(rotated), "image/png")}
+        "/scan",
+        files={"file": ("scan.png", _page_to_upload_bytes(rotated), "image/png")},
+        headers=auth_headers(seeded_quiz["token"]),
     )
 
     # The point of this test is that the pipeline reaches scoring at all
@@ -305,7 +308,9 @@ def _scan_with_one_multi_mark(seeded_quiz) -> tuple[dict, int]:
     _mark_bubble_filled(page_rgb, template, 1, second_option)
 
     response = client.post(
-        "/scan", files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")}
+        "/scan",
+        files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
+        headers=auth_headers(seeded_quiz["token"]),
     )
     assert response.status_code == 201, response.text
 
@@ -359,7 +364,9 @@ def test_scan_unreadable_qr_never_creates_submission_or_reaches_scoring(seeded_q
             before = cur.fetchone()[0]
 
     response = client.post(
-        "/scan", files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")}
+        "/scan",
+        files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
+        headers=auth_headers(seeded_quiz["token"]),
     )
 
     assert response.status_code == 422
@@ -396,12 +403,70 @@ def test_scan_qr_from_unknown_version_returns_404_and_creates_no_submission(seed
     page_rgb[y0:y1, x0:x1] = np.array(qr_img)
 
     response = client.post(
-        "/scan", files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")}
+        "/scan",
+        files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
+        headers=auth_headers(seeded_quiz["token"]),
     )
 
     assert response.status_code == 404
     assert response.json()["detail"]["error"] == "version_not_found"
     assert response.json()["detail"]["qr_id"] == unknown_qr_id
+
+
+def _all_correct_page(seeded_quiz):
+    template = load_template()
+    page_rgb = _render_and_rasterize(seeded_quiz)
+    write_name_on_page(page_rgb, template, "JOHN SMITH", dpi=DPI)
+    for row_index, qid in enumerate(seeded_quiz["question_order"]):
+        _mark_bubble_filled(
+            page_rgb, template, row_index, _correct_shuffled_position(seeded_quiz, qid)
+        )
+    return page_rgb
+
+
+def _count_submissions(version_id) -> int:
+    with psycopg.connect(DATABASE_URL) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select count(*) from submissions where version_id = %s", (str(version_id),)
+            )
+            return cur.fetchone()[0]
+
+
+def test_scan_requires_auth_and_creates_no_submission(seeded_quiz):
+    response = client.post(
+        "/scan",
+        files={
+            "file": ("scan.png", _page_to_upload_bytes(_all_correct_page(seeded_quiz)), "image/png")
+        },
+    )
+    assert response.status_code in (401, 422)
+    assert _count_submissions(seeded_quiz["version_id"]) == 0
+
+
+def test_scan_rejects_a_qr_for_another_professors_quiz(seeded_quiz):
+    """A decoded QR for a version the requesting professor doesn't own is
+    treated as version_not_found - never scored into their results, and the
+    same opaque 404 as an unregistered QR so it doesn't confirm the other
+    quiz exists."""
+    page_rgb = _all_correct_page(seeded_quiz)
+
+    other_email = f"scan-intruder-{uuid.uuid4().hex[:8]}@example.com"
+    other_user_id, other_token = create_auth_user_and_token(other_email)
+    try:
+        response = client.post(
+            "/scan",
+            files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
+            headers=auth_headers(other_token),
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"]["error"] == "version_not_found"
+        assert _count_submissions(seeded_quiz["version_id"]) == 0
+    finally:
+        run_sql(
+            f"delete from users where id = '{other_user_id}';"
+            f"delete from auth.users where id = '{other_user_id}';"
+        )
 
 
 def test_professor_manual_correction_updates_score_and_status(seeded_quiz):
@@ -497,7 +562,9 @@ def test_scan_blank_name_needs_review_even_with_all_correct_answers(seeded_quiz)
         _mark_bubble_filled(page_rgb, template, row_index, shuffled_pos)
 
     response = client.post(
-        "/scan", files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")}
+        "/scan",
+        files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
+        headers=auth_headers(seeded_quiz["token"]),
     )
 
     assert response.status_code == 201, response.text
@@ -522,7 +589,9 @@ def test_professor_name_correction_finalizes_a_submission_flagged_only_for_name(
         _mark_bubble_filled(page_rgb, template, row_index, shuffled_pos)
 
     scan_response = client.post(
-        "/scan", files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")}
+        "/scan",
+        files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
+        headers=auth_headers(seeded_quiz["token"]),
     )
     assert scan_response.status_code == 201, scan_response.text
     submission_id = scan_response.json()["submission_id"]
@@ -564,15 +633,18 @@ def test_scan_same_capture_id_twice_returns_same_submission_and_creates_no_dupli
     image_bytes = _page_to_upload_bytes(page_rgb)
 
     capture_id = f"capture-{uuid.uuid4()}"
+    headers = auth_headers(seeded_quiz["token"])
     first = client.post(
         "/scan",
         files={"file": ("scan.png", image_bytes, "image/png")},
         params={"capture_id": capture_id},
+        headers=headers,
     )
     second = client.post(
         "/scan",
         files={"file": ("scan.png", image_bytes, "image/png")},
         params={"capture_id": capture_id},
+        headers=headers,
     )
 
     assert first.status_code == 201, first.text
@@ -601,8 +673,13 @@ def test_scan_without_capture_id_still_creates_a_new_submission_each_time(seeded
         _mark_bubble_filled(page_rgb, template, row_index, shuffled_pos)
     image_bytes = _page_to_upload_bytes(page_rgb)
 
-    first = client.post("/scan", files={"file": ("scan.png", image_bytes, "image/png")})
-    second = client.post("/scan", files={"file": ("scan.png", image_bytes, "image/png")})
+    headers = auth_headers(seeded_quiz["token"])
+    first = client.post(
+        "/scan", files={"file": ("scan.png", image_bytes, "image/png")}, headers=headers
+    )
+    second = client.post(
+        "/scan", files={"file": ("scan.png", image_bytes, "image/png")}, headers=headers
+    )
 
     assert first.status_code == 201, first.text
     assert second.status_code == 201, second.text

@@ -1,6 +1,6 @@
 import path from "path";
 import { test, expect } from "@playwright/test";
-import { scanVersionFromUrl } from "./pythonRegression";
+import { scanVersionFromUrl, tokenFor } from "./pythonRegression";
 
 function uniqueEmail() {
   return `e2e-happy-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`;
@@ -17,9 +17,10 @@ test("full happy path driven through the Next.js UI finalizes all 3 versions at 
   page,
 }) => {
   const email = uniqueEmail();
+  const password = "correct-horse-battery-staple";
   await page.goto("/signup");
   await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill("correct-horse-battery-staple");
+  await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Sign up" }).click();
   await expect(page).toHaveURL(/\/quizzes$/);
 
@@ -53,8 +54,9 @@ test("full happy path driven through the Next.js UI finalizes all 3 versions at 
   // set of scores actually exercises the score math (same rationale as
   // test_e2e_happy_path.py's own "not all-correct-only" design choice).
   const modes = ["correct", "wrong:0", "correct"];
+  const token = tokenFor(email, password);
   const results = versions.map((v, i) =>
-    scanVersionFromUrl(v.versionId, v.pdfUrl!, modes[i], `happy-path-student-${i}`),
+    scanVersionFromUrl(v.versionId, v.pdfUrl!, modes[i], token, `happy-path-student-${i}`),
   );
 
   for (const [i, result] of results.entries()) {

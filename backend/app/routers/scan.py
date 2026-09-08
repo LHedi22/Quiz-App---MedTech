@@ -92,7 +92,10 @@ def _detect_answers_on_page(
 
 @router.post("/scan", status_code=201)
 async def scan_submission(
-    file: UploadFile, student_id: str | None = None, capture_id: str | None = None
+    file: UploadFile,
+    student_id: str | None = None,
+    capture_id: str | None = None,
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     contents = await file.read()
     image_array = np.frombuffer(contents, dtype=np.uint8)
@@ -154,8 +157,18 @@ async def scan_submission(
     logger.warning("scan_diag capture_id=%s result=qr_decoded qr_id=%s", capture_id, qr_id)
 
     with get_connection() as conn:
+        ensure_user_row(conn, user)
         lookup = lookup_version_by_qr_id(conn, qr_id)
         if lookup is None:
+            raise HTTPException(
+                status_code=404, detail={"error": "version_not_found", "qr_id": qr_id}
+            )
+
+        # A professor may only scan sheets for their own quizzes - a decoded
+        # QR for another professor's version is treated as version_not_found
+        # (same opaque 404 as an unregistered QR), never scored into their
+        # results dashboard.
+        if not _quiz_is_owned_by(conn, lookup.version.quiz_id, user):
             raise HTTPException(
                 status_code=404, detail={"error": "version_not_found", "qr_id": qr_id}
             )
@@ -216,6 +229,13 @@ async def list_submissions(
         ensure_user_row(conn, user)
         rows = submissions_service.list_submissions_by_status(conn, status, user.id)
     return [_serialize_submission_summary(row) for row in rows]
+
+
+def _quiz_is_owned_by(conn, quiz_id: UUID, user: AuthUser) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("select owner_id from quizzes where id = %s", (quiz_id,))
+        row = cur.fetchone()
+    return row is not None and row[0] == user.id
 
 
 def _require_submission_owner(conn, submission_id: UUID, user: AuthUser) -> None:

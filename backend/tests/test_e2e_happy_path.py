@@ -165,6 +165,7 @@ def _scan_version(
         "/scan",
         files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
         params={"student_id": f"student-{version_id}"},
+        headers=auth_headers(token),
     )
     return response
 

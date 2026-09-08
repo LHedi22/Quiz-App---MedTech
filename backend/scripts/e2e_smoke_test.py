@@ -201,6 +201,7 @@ def main() -> None:
     scan = httpx.post(
         f"{backend_url}/scan",
         files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
+        headers=headers,
         timeout=30.0,
     )
     assert scan.status_code == 201, scan.text

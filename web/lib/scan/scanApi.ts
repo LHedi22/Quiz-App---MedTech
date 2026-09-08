@@ -1,16 +1,13 @@
 /** Client for `POST /scan` (backend/app/routers/scan.py), used only by the
- * web capture screen (Subtask 7c.3). Mirrors mobile/lib/services/
- * api_client.dart's `ApiClient.scanSubmission` - same endpoint, same
- * multipart shape.
+ * web capture screen (Subtask 7c.3).
  *
- * The route has no `Depends(get_current_user)` server-side - a deliberate
- * carry-over for the Flutter offline path, which has no session at scan
- * time. The web app does NOT rely on that: its /scan screen is behind the
- * authenticated `(app)` route group and always passes a real token (see
- * `requireAccessToken` in app/(app)/scan/page.tsx). `accessToken` is typed
+ * `POST /scan` requires a Supabase bearer token and scopes the scan to the
+ * professor who owns the scanned version's quiz (web-app audit A2 - the app
+ * is web-only now, see docs/BLOCKERS.md). The web `/scan` screen is behind
+ * the authenticated `(app)` route group, so a token is always available
+ * (`requireAccessToken` in app/(app)/scan/page.tsx). `accessToken` is typed
  * nullable only so the mobile-shaped fake in the tests can omit it; the web
- * wiring never passes null. See web-app audit A2 / docs/BLOCKERS.md for the
- * open decision on requiring auth on this route outright. */
+ * wiring never passes null. */
 
 export interface ScanResult {
   submissionId: string;

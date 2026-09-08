@@ -237,6 +237,7 @@ def test_ambiguous_bubble_scan_needs_review_with_exact_flagged_question(quiz_wit
     response = client.post(
         "/scan",
         files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
+        headers=auth_headers(quiz_with_one_version["token"]),
     )
     assert response.status_code == 201, response.text
     body = response.json()
@@ -297,6 +298,7 @@ def test_unreadable_qr_scan_returns_distinct_signal_and_creates_no_submission(
     response = client.post(
         "/scan",
         files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
+        headers=auth_headers(quiz_with_one_version["token"]),
     )
 
     assert response.status_code == 422, response.text

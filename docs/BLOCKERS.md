@@ -1,10 +1,31 @@
 # Blockers
 
-## Web-app audit A2 — `POST /scan` is fully unauthenticated (backend contract decision) [OPEN 2026-09-08]
+## Web-app audit A2 — `POST /scan` is fully unauthenticated (backend contract decision) [RESOLVED 2026-09-08]
 
-**What's blocked:** deciding whether `POST /scan` (`backend/app/routers/scan.py`)
-should keep having no `Depends(get_current_user)`. Today anyone who can reach
-the backend and render/print a valid version QR can create submissions
+**Resolution:** the user confirmed the app is **web-only from now on — the
+Flutter mobile app will not be used at all**, which removes the only reason
+`/scan` was left open. `scan_submission` now takes
+`user: AuthUser = Depends(get_current_user)` + `ensure_user_row`, and a
+decoded QR for a version whose quiz the requesting professor does not own is
+rejected as `version_not_found` (same opaque 404 as an unregistered QR) so
+one professor can neither pollute another's results nor confirm another's
+quiz exists. Updated every `/scan` caller in the backend test suite
+(`test_scan_endpoint.py`, `test_e2e_happy_path.py`, `test_e2e_unhappy_path.py`)
+to authenticate, added `test_scan_requires_auth_and_creates_no_submission`
+and `test_scan_rejects_a_qr_for_another_professors_quiz`, and threaded a
+bearer token through the web e2e scan path
+(`backend/scripts/e2e_web_regression_scan.py` gained a `token` command +
+`scan-url` now takes a token; `web/e2e/pythonRegression.ts` gained
+`tokenFor`; `full-happy-path.spec.ts` mints one after signup). Also
+`e2e_smoke_test.py`. See PROGRESS.md's "[Web-app audit fix A2]" entry.
+
+The web-side hardening below shipped first (separate commit) and stands.
+
+**Original decision record:**
+
+**What was blocked:** deciding whether `POST /scan` (`backend/app/routers/scan.py`)
+should keep having no `Depends(get_current_user)`. Anyone who could reach
+the backend and render/print a valid version QR could create submissions
 anonymously and pollute a professor's results dashboard.
 
 **Why this is a stop-and-ask, not a fix-it-myself:** CLAUDE.md Section 2

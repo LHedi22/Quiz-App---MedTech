@@ -21,12 +21,11 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL!;
 const MIN_CAPTURE_DIMENSION_PX = 720;
 
 async function requireAccessToken(): Promise<string> {
-  // The web /scan screen lives inside the authenticated (app) route group,
-  // so a session is always expected here. `POST /scan` is still open
-  // server-side for the Flutter offline path, but the web app must never
-  // submit a scan without a token: if the session has expired, let the
-  // error propagate so the sheet lands in "not submitted - retry" rather
-  // than creating an anonymous submission (web-app audit A2).
+  // `POST /scan` requires a bearer token (web-app audit A2). The web /scan
+  // screen lives inside the authenticated (app) route group, so a session
+  // is always expected here; if it has expired, let the error propagate so
+  // the sheet lands in "not submitted - retry" rather than failing on a
+  // 401 with no way forward.
   return getAccessToken();
 }
 

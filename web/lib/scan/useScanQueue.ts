@@ -22,11 +22,11 @@ export interface ScanSheet {
  * same reasoning as that file's own docstring, and this dev environment
  * has no usable fake-camera-device setup either).
  *
- * `getAccessToken` is called inside the submit attempt: if it throws (the
- * web wiring passes a variant that throws on an expired session rather than
- * submitting anonymously - web-app audit A2), the sheet lands in the same
- * "failed / not submitted - retry" state as a network drop or a backend
- * rejection, never silently counted as processed. */
+ * `getAccessToken` is called inside the submit attempt: `POST /scan`
+ * requires a bearer token (web-app audit A2), so if the session has expired
+ * and it throws, the sheet lands in the same "failed / not submitted -
+ * retry" state as a network drop or a backend rejection, never silently
+ * counted as processed. */
 export function useScanQueue(api: ScanApi, getAccessToken: () => Promise<string | null>) {
   const [sheets, setSheets] = useState<ScanSheet[]>([]);
   const blobsRef = useRef<Map<string, Blob>>(new Map());

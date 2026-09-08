@@ -18,9 +18,10 @@ const PYTHON = existsSync(VENV_PYTHON)
   : process.env.PYTHON_BIN || (process.platform === "win32" ? "python" : "python3");
 const SCRIPT = path.join(BACKEND_DIR, "scripts", "e2e_web_regression_scan.py");
 
-/** Shells out to backend/scripts/e2e_web_regression_scan.py - the one step
- * in these regression tests with no web UI equivalent (scanning is
- * mobile-only). See that script's own docstring for why. */
+/** Shells out to backend/scripts/e2e_web_regression_scan.py to drive the
+ * scan step from a rendered PDF (these regression specs predate the Phase
+ * 7c in-browser /scan screen and still exercise scanning at the API level).
+ * See that script's own docstring for details. */
 function run(args: string[]): Record<string, unknown> {
   const output = execFileSync(PYTHON, [SCRIPT, ...args], {
     cwd: BACKEND_DIR,
@@ -82,9 +83,16 @@ export function scanVersionFromUrl(
   versionId: string,
   pdfUrl: string,
   mode: string,
+  token: string,
   studentId?: string,
 ): ScanResult {
-  const args = ["scan-url", versionId, pdfUrl, mode];
+  const args = ["scan-url", versionId, pdfUrl, mode, token];
   if (studentId) args.push(studentId);
   return run(args) as unknown as ScanResult;
+}
+
+/** Mints an access token for an account created through the real signup UI,
+ * so the token-gated POST /scan step can authenticate (web-app audit A2). */
+export function tokenFor(email: string, password: string): string {
+  return (run(["token", email, password]) as { token: string }).token;
 }

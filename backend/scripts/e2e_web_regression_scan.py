@@ -23,19 +23,24 @@ Commands:
   scan <version_id> <mode> <token> [student_id]
       mode is "correct", "wrong:<0-based row index>", or
       "ambiguous:<0-based row index>". <token> is the owning professor's
-      access token from seed-quiz (GET /versions/{id}/pdf requires auth).
-      Downloads and renders that version's real PDF, marks bubbles
-      accordingly, POSTs to /scan (itself still unauthenticated - mobile's
-      own endpoint, unaffected by the Phase 7 backend fix).
+      access token from seed-quiz - both GET /versions/{id}/pdf and
+      POST /scan require it (POST /scan is web-only now, see
+      docs/BLOCKERS.md "Web-app audit A2"). Downloads and renders that
+      version's real PDF, marks bubbles accordingly, POSTs to /scan.
       Prints {"submission_id", "status", "total_score",
       "flagged_question_numbers", "correct_option_for_flagged_row"}.
 
-  scan-url <version_id> <pdf_url> <mode> [student_id]
+  scan-url <version_id> <pdf_url> <mode> <token> [student_id]
       Same as `scan`, but downloads from an already-obtained signed PDF URL
       (e.g. one read out of the Next.js UI's real download link) instead of
       calling GET /versions/{id}/pdf itself - used by the Subtask 7b.4 full
       happy-path test, which drives every web-facing step through the
       actual UI. Prints the same shape as `scan`.
+
+  token <email> <password>
+      Mints an access token for an existing account (e.g. one created via
+      the real signup UI) so a Playwright test can authenticate the /scan
+      step. Prints {"token"}.
 """
 
 from __future__ import annotations
@@ -101,6 +106,17 @@ def create_auth_user_and_token(email: str) -> str:
     )
     response.raise_for_status()
     return response.json()["access_token"]
+
+
+def print_token(email: str, password: str) -> None:
+    response = httpx.post(
+        f"{SUPABASE_URL}/auth/v1/token?grant_type=password",
+        headers={"apikey": ANON_KEY},
+        json={"email": email, "password": password},
+        timeout=15.0,
+    )
+    response.raise_for_status()
+    print(json.dumps({"token": response.json()["access_token"]}))
 
 
 def seed_quiz(title: str) -> None:
@@ -192,23 +208,24 @@ def scan(version_id: str, mode: str, token: str, student_id: str | None) -> None
     if pdf_meta.status_code != 200:
         raise SystemExit(f"could not fetch version pdf metadata: {pdf_meta.status_code}")
     pdf_bytes = httpx.get(pdf_meta.json()["url"]).content
-    _scan_from_pdf_bytes(version_id, pdf_bytes, mode, student_id)
+    _scan_from_pdf_bytes(version_id, pdf_bytes, mode, student_id, token)
 
 
-def scan_url(version_id: str, pdf_url: str, mode: str, student_id: str | None) -> None:
+def scan_url(version_id: str, pdf_url: str, mode: str, token: str, student_id: str | None) -> None:
     """Subtask 7b.4: scans a version whose signed download URL was obtained
     through the actual Next.js UI (the /quizzes/[id] page's real "Download
     PDF" links), not re-fetched via the API - so this step consumes exactly
     what a professor clicking that link would get."""
     pdf_bytes = httpx.get(pdf_url).content
-    _scan_from_pdf_bytes(version_id, pdf_bytes, mode, student_id)
+    _scan_from_pdf_bytes(version_id, pdf_bytes, mode, student_id, token)
 
 
 def _scan_from_pdf_bytes(
-    version_id: str, pdf_bytes: bytes, mode: str, student_id: str | None
+    version_id: str, pdf_bytes: bytes, mode: str, student_id: str | None, token: str
 ) -> None:
     mapping = _fetch_version_mapping(version_id)
     template = load_template()
+    scan_headers = {"Authorization": f"Bearer {token}"}
     page_rgb = render_page_rgb(pdf_bytes, dpi=DPI)
     # A blank name field is its own confidence-gate flag (name_flagged) that
     # would route every scan here to needs_review regardless of the answer
@@ -237,6 +254,7 @@ def _scan_from_pdf_bytes(
             f"{BACKEND_URL}/scan",
             files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
             params=params,
+            headers=scan_headers,
         )
         print(
             json.dumps(
@@ -277,6 +295,7 @@ def _scan_from_pdf_bytes(
         f"{BACKEND_URL}/scan",
         files={"file": ("scan.png", _page_to_upload_bytes(page_rgb), "image/png")},
         params=params,
+        headers=scan_headers,
     )
     response.raise_for_status()
     body = response.json()
@@ -299,8 +318,10 @@ def main() -> None:
         student_id = sys.argv[5] if len(sys.argv) > 5 else None
         scan(sys.argv[2], sys.argv[3], sys.argv[4], student_id)
     elif command == "scan-url":
-        student_id = sys.argv[5] if len(sys.argv) > 5 else None
-        scan_url(sys.argv[2], sys.argv[3], sys.argv[4], student_id)
+        student_id = sys.argv[6] if len(sys.argv) > 6 else None
+        scan_url(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], student_id)
+    elif command == "token":
+        print_token(sys.argv[2], sys.argv[3])
     else:
         raise SystemExit(f"unknown command: {command}")
 
