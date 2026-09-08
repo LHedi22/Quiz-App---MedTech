@@ -165,6 +165,7 @@ def main() -> None:
     upload = httpx.post(
         f"{backend_url}/quizzes/{quiz_id}/upload",
         files={"file": ("smoke.xlsx", _build_excel_bytes(), XLSX_CONTENT_TYPE)},
+        headers=headers,
         timeout=15.0,
     )
     assert upload.status_code == 201, upload.text
@@ -182,7 +183,9 @@ def main() -> None:
     version_id = versions.json()[0]["id"]
 
     print("4. Downloading the real PDF and marking the mathematically correct bubbles ...")
-    pdf_meta = httpx.get(f"{backend_url}/versions/{version_id}/pdf", timeout=30.0)
+    pdf_meta = httpx.get(
+        f"{backend_url}/versions/{version_id}/pdf", headers=headers, timeout=30.0
+    )
     assert pdf_meta.status_code == 200, pdf_meta.text
     pdf_bytes = httpx.get(pdf_meta.json()["url"], timeout=30.0).content
 
@@ -206,15 +209,21 @@ def main() -> None:
     )
     assert scan.status_code == 201, scan.text
     body = scan.json()
-    assert body["status"] == "finalized", body
+    # The synthetic page carries no handwritten name, so the name-OCR
+    # confidence gate legitimately routes it to needs_review. That is the
+    # only acceptable non-finalized outcome here: the answer detection must
+    # still be perfect (exact score, zero flagged questions).
+    assert body["status"] in ("finalized", "needs_review"), body
+    if body["status"] == "needs_review":
+        assert body["name_flagged"] is True, body
     assert body["total_score"] == float(NUM_QUESTIONS), body
     assert body["flagged_question_numbers"] == [], body
 
     print(
         f"\nSMOKE TEST PASSED against {backend_url}: health, auth, upload, version "
         f"generation, real PDF download+render, and /scan all round-tripped "
-        f"successfully, finalizing with the exact expected score "
-        f"{body['total_score']}/{NUM_QUESTIONS}."
+        f"successfully, scoring the exact expected {body['total_score']}/{NUM_QUESTIONS} "
+        f"with zero flagged questions (status: {body['status']})."
     )
 
 
