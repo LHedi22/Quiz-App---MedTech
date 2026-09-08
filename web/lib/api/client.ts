@@ -1,3 +1,4 @@
+import { AuthExpiredError } from "@/lib/authError";
 import type {
   CreateVersionsResult,
   Quiz,
@@ -88,6 +89,13 @@ async function request<T>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
+
+    // A 401 from the backend means the bearer token is invalid/expired -
+    // surface it as an auth-expiry so the client redirects to /login rather
+    // than rendering a generic failure.
+    if (response.status === 401) {
+      throw new AuthExpiredError();
+    }
 
     const errors = (body as { detail?: { errors?: unknown } } | null)?.detail?.errors;
     if (response.status === 422 && isRowErrorList(errors)) {

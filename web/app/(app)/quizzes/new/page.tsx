@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createQuiz, uploadQuizExcel, UploadValidationError } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/supabase/client";
+import { handledAsAuthExpiry } from "@/lib/authError";
 import type { RowError } from "@/lib/api/types";
 import { Field } from "@/components/Field";
 import { Button } from "@/components/Button";
@@ -35,7 +36,8 @@ export default function NewQuizPage() {
       const quiz = await createQuiz(title, token);
       setQuizId(quiz.id);
       setStep("upload");
-    } catch {
+    } catch (err) {
+      if (handledAsAuthExpiry(err)) return;
       setError("Could not create the quiz. Please try again.");
     } finally {
       setBusy(false);
@@ -60,6 +62,7 @@ export default function NewQuizPage() {
       const result = await uploadQuizExcel(quizId, file, token);
       setQuestionsInserted(result.questions_inserted);
     } catch (err) {
+      if (handledAsAuthExpiry(err)) return;
       if (err instanceof UploadValidationError) {
         setRowErrors(err.errors);
       } else {

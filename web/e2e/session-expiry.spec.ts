@@ -35,3 +35,33 @@ test("a session invalidated mid-use redirects to login cleanly, with no leaked p
   await page.goto("/results");
   await expect(page).toHaveURL(/\/login$/);
 });
+
+// web-app audit B6: the case above is a *navigation* (proxy.ts redirects
+// cleanly). This covers an in-page fetch failing 401 while the professor
+// sits on a client-rendered page - it must redirect to /login, not leave a
+// dead-end "Could not load…" message.
+test("a 401 from an in-page API fetch redirects to login instead of dead-ending", async ({
+  page,
+}) => {
+  const email = uniqueEmail();
+  await page.goto("/signup");
+  await page.getByLabel("Email").fill(email);
+  await page.getByLabel("Password").fill("correct-horse-battery-staple");
+  await page.getByRole("button", { name: "Sign up" }).click();
+  await expect(page).toHaveURL(/\/quizzes$/);
+
+  // The session cookie is still valid (proxy.ts lets the page render), but
+  // the backend rejects the bearer token on the in-page fetch.
+  await page.route("**/quizzes/*/submissions*", (route) =>
+    route.fulfill({ status: 401, contentType: "application/json", body: "{}" }),
+  );
+
+  await page.goto("/results/00000000-0000-0000-0000-000000000000");
+
+  // The professor is navigated away from the dead page (to /login; the
+  // still-valid cookie may then bounce them on to /quizzes via proxy.ts) -
+  // the point is they are NOT stranded on /results with a "Could not load…"
+  // message and no way forward.
+  await expect(page).not.toHaveURL(/\/results\//);
+  await expect(page.getByText(/could not load/i)).not.toBeVisible();
+});

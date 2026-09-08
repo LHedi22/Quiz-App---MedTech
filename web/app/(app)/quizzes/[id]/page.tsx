@@ -7,6 +7,7 @@ import {
   listQuizVersions,
 } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/supabase/client";
+import { handledAsAuthExpiry } from "@/lib/authError";
 import type { VersionSummary } from "@/lib/api/types";
 import { Field } from "@/components/Field";
 import { Button } from "@/components/Button";
@@ -58,7 +59,8 @@ export default function QuizDetailPage({ params }: { params: Promise<{ id: strin
       if (ignore) return;
       setVersions(loaded);
       await Promise.allSettled(loaded.map((version) => loadPdfUrl(version.id, token)));
-    })().catch(() => {
+    })().catch((e) => {
+      if (handledAsAuthExpiry(e)) return;
       setError("Could not load versions.");
     });
     return () => {
@@ -67,8 +69,13 @@ export default function QuizDetailPage({ params }: { params: Promise<{ id: strin
   }, [quizId, loadPdfUrl]);
 
   async function retryPdf(versionId: string) {
-    const token = await getAccessToken();
-    await loadPdfUrl(versionId, token);
+    try {
+      const token = await getAccessToken();
+      await loadPdfUrl(versionId, token);
+    } catch (e) {
+      if (handledAsAuthExpiry(e)) return;
+      setPdfFailedIds((prev) => ({ ...prev, [versionId]: true }));
+    }
   }
 
   async function handleGenerate(e: React.FormEvent) {
@@ -81,11 +88,13 @@ export default function QuizDetailPage({ params }: { params: Promise<{ id: strin
       await createVersions(quizId, count, token);
       try {
         await loadVersions();
-      } catch {
+      } catch (e) {
+        if (handledAsAuthExpiry(e)) return;
         // Generation succeeded server-side; only the refresh failed.
         setNotice("Versions generated. Refresh the page to see them.");
       }
-    } catch {
+    } catch (e) {
+      if (handledAsAuthExpiry(e)) return;
       setError("Could not generate versions. Does this quiz have any questions?");
     } finally {
       setBusy(false);

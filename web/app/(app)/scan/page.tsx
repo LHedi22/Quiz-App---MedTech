@@ -8,6 +8,7 @@ import { useScanQueue } from "@/lib/scan/useScanQueue";
 import { useReachability } from "@/lib/scan/useReachability";
 import { needsReviewSubmissionIds, summarizeSheets } from "@/lib/scan/summary";
 import { getAccessToken } from "@/lib/supabase/client";
+import { handledAsAuthExpiry } from "@/lib/authError";
 
 type CameraState = "initializing" | "ready" | "permission_denied" | "no_camera" | "error";
 
@@ -23,10 +24,15 @@ const MIN_CAPTURE_DIMENSION_PX = 720;
 async function requireAccessToken(): Promise<string> {
   // `POST /scan` requires a bearer token (web-app audit A2). The web /scan
   // screen lives inside the authenticated (app) route group, so a session
-  // is always expected here; if it has expired, let the error propagate so
-  // the sheet lands in "not submitted - retry" rather than failing on a
-  // 401 with no way forward.
-  return getAccessToken();
+  // is always expected here. If it has expired, redirect to /login (B6);
+  // the rethrow still lands the in-flight sheet in "not submitted" so
+  // nothing is silently counted as processed.
+  try {
+    return await getAccessToken();
+  } catch (e) {
+    handledAsAuthExpiry(e);
+    throw e;
+  }
 }
 
 /** Browser camera capture screen (Subtasks 7c.2-7c.4). Mirrors mobile's

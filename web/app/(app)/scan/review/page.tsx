@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getSubmission } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/supabase/client";
+import { handledAsAuthExpiry } from "@/lib/authError";
 import type { SubmissionDetail } from "@/lib/api/types";
 import { Alert } from "@/components/Alert";
 import { Bubble } from "@/components/Bubble";
@@ -48,8 +49,9 @@ function ScanReviewList() {
           .map((r) => r.value),
       );
       setFailedCount(results.filter((r) => r.status === "rejected").length);
-    })().catch(() => {
-      // Only a precondition failure (no session) reaches here now.
+    })().catch((e) => {
+      if (handledAsAuthExpiry(e)) return;
+      // Only a precondition failure reaches here now.
       setError("Could not load this session's flagged submissions.");
     });
     return () => {

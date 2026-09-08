@@ -4,6 +4,7 @@ import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { correctAnswer, correctName, getSubmission } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/supabase/client";
+import { handledAsAuthExpiry } from "@/lib/authError";
 import type { AnswerDetail, SubmissionDetail } from "@/lib/api/types";
 import { Select } from "@/components/Select";
 import { Field } from "@/components/Field";
@@ -56,7 +57,10 @@ export default function SubmissionReviewPage({
       const token = await getAccessToken();
       const loaded = await getSubmission(submissionId, token);
       if (!ignore) syncFromSubmission(loaded);
-    })().catch(() => setError("Could not load this submission."));
+    })().catch((e) => {
+      if (handledAsAuthExpiry(e)) return;
+      setError("Could not load this submission.");
+    });
     return () => {
       ignore = true;
     };
@@ -74,7 +78,8 @@ export default function SubmissionReviewPage({
     try {
       const token = await getAccessToken();
       syncFromSubmission(await correctName(submissionId, nameInput, token));
-    } catch {
+    } catch (e) {
+      if (handledAsAuthExpiry(e)) return;
       setError("Could not save the name correction. Please try again.");
     } finally {
       setSavingName(false);
@@ -96,7 +101,8 @@ export default function SubmissionReviewPage({
         token,
       );
       syncFromSubmission(updated);
-    } catch {
+    } catch (e) {
+      if (handledAsAuthExpiry(e)) return;
       setError("Could not save the correction. Please try again.");
     } finally {
       setSavingAnswerId(null);

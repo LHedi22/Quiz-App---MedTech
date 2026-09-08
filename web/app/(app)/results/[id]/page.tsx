@@ -4,6 +4,7 @@ import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { listQuizSubmissions } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/supabase/client";
+import { handledAsAuthExpiry } from "@/lib/authError";
 import type { SubmissionStatus, SubmissionSummary } from "@/lib/api/types";
 import { Select } from "@/components/Select";
 import { Button } from "@/components/Button";
@@ -29,7 +30,8 @@ export default function ResultsDashboardPage({ params }: { params: Promise<{ id:
       const token = await getAccessToken();
       const loaded = await listQuizSubmissions(quizId, token);
       if (!ignore) setSubmissions(loaded);
-    })().catch(() => {
+    })().catch((e) => {
+      if (handledAsAuthExpiry(e)) return;
       setError("Could not load results.");
     });
     return () => {

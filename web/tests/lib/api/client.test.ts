@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { ApiError, ApiTimeoutError, listQuizzes } from "@/lib/api/client";
+import { AuthExpiredError } from "@/lib/authError";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -29,6 +30,16 @@ describe("api client request()", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiTimeoutError).status).toBe(0);
     expect((err as Error).message).toMatch(/timed out/i);
+  });
+
+  test("maps a 401 response to AuthExpiredError", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 401 })),
+    );
+
+    const err = await listQuizzes("token").catch((e) => e);
+    expect(err).toBeInstanceOf(AuthExpiredError);
   });
 
   test("lets a non-timeout fetch rejection propagate unchanged", async () => {
