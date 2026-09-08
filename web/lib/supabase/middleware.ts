@@ -3,6 +3,13 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const PUBLIC_ROUTES = ["/login", "/signup"];
 
+/** Exact path, or a path segment under it - NOT a bare prefix. `startsWith`
+ * alone would make a future sibling like `/login-help` or `/signups` public
+ * by accident; `/login/reset` (a real child route) still matches. */
+export function isPublicRoute(pathname: string): boolean {
+  return PUBLIC_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`));
+}
+
 /** Runs from proxy.ts on every matched request: refreshes the Supabase
  * session cookie and enforces the auth boundary server-side, before any
  * page renders. */
@@ -32,17 +39,15 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isPublicRoute = PUBLIC_ROUTES.some((route) =>
-    request.nextUrl.pathname.startsWith(route),
-  );
+  const publicRoute = isPublicRoute(request.nextUrl.pathname);
 
-  if (!user && !isPublicRoute) {
+  if (!user && !publicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  if (user && isPublicRoute) {
+  if (user && publicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/quizzes";
     return NextResponse.redirect(url);
