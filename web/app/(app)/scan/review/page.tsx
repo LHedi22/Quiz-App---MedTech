@@ -26,6 +26,7 @@ function ScanReviewList() {
   );
 
   const [submissions, setSubmissions] = useState<SubmissionDetail[] | null>(null);
+  const [failedCount, setFailedCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,10 +37,20 @@ function ScanReviewList() {
         return;
       }
       const token = await getAccessToken();
-      const loaded = await Promise.all(ids.map((id) => getSubmission(id, token)));
-      if (!ignore) setSubmissions(loaded);
+      // allSettled, not all: one id that 404s (a deleted submission, a
+      // transient error) must not hide every other flagged submission from
+      // this session.
+      const results = await Promise.allSettled(ids.map((id) => getSubmission(id, token)));
+      if (ignore) return;
+      setSubmissions(
+        results
+          .filter((r): r is PromiseFulfilledResult<SubmissionDetail> => r.status === "fulfilled")
+          .map((r) => r.value),
+      );
+      setFailedCount(results.filter((r) => r.status === "rejected").length);
     })().catch(() => {
-      if (!ignore) setError("Could not load this session's flagged submissions.");
+      // Only a precondition failure (no session) reaches here now.
+      setError("Could not load this session's flagged submissions.");
     });
     return () => {
       ignore = true;
@@ -55,9 +66,18 @@ function ScanReviewList() {
         This session&apos;s flagged submissions
       </h1>
 
+      {failedCount > 0 && (
+        <p className="text-sm text-flag" data-testid="partial-load-note">
+          {failedCount} submission{failedCount === 1 ? "" : "s"} from this session could not be
+          loaded.
+        </p>
+      )}
+
       {submissions.length === 0 ? (
         <p className="text-ink-soft" data-testid="empty-state">
-          Nothing from this session needs review.
+          {failedCount > 0
+            ? "None of this session's submissions could be loaded."
+            : "Nothing from this session needs review."}
         </p>
       ) : (
         <ul className="divide-y divide-sand rounded-sm border border-sand bg-paper-raised" data-testid="scan-review-list">
