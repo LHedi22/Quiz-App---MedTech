@@ -130,6 +130,14 @@ export default function ScanPage() {
 
     setCapturing(true);
     setRetakeReason(null);
+    // `capturing` must stay true until the frame is actually handed to the
+    // queue - `canvas.toBlob` is async, and releasing the guard in a
+    // synchronous `finally` re-enables the button in the gap before the
+    // callback fires, so a fast second tap captures a *new* frame and mints
+    // a second submission with a fresh capture_id (web-app audit B3). So:
+    // reset `capturing` at every early return, and otherwise only from
+    // inside the toBlob callback.
+    let handedOff = false;
     try {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
@@ -150,15 +158,17 @@ export default function ScanPage() {
         );
         return;
       }
+      handedOff = true;
       canvas.toBlob(
         (blob) => {
           if (blob) submit(blob);
+          setCapturing(false);
         },
         "image/jpeg",
         0.92,
       );
     } finally {
-      setCapturing(false);
+      if (!handedOff) setCapturing(false);
     }
   }, [cameraState, capturing, submit]);
 
