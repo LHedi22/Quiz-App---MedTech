@@ -42,9 +42,11 @@ export default function ResultsDashboardPage({ params }: { params: Promise<{ id:
     const filtered =
       statusFilter === "all" ? submissions : submissions.filter((s) => s.status === statusFilter);
     const sorted = [...filtered].sort((a, b) => {
+      // created_at is the stable tiebreaker when sorting by status, so rows
+      // with the same status keep a deterministic order between renders.
       const cmp =
         sortKey === "status"
-          ? a.status.localeCompare(b.status)
+          ? a.status.localeCompare(b.status) || a.created_at.localeCompare(b.created_at)
           : a.created_at.localeCompare(b.created_at);
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -67,7 +69,8 @@ export default function ResultsDashboardPage({ params }: { params: Promise<{ id:
           <option value="all">All</option>
           <option value="finalized">Finalized</option>
           <option value="needs_review">Needs review</option>
-          <option value="pending">Pending</option>
+          {/* No "pending" option: create_submission only ever writes
+              needs_review or finalized, so it could never match. */}
         </Select>
         <Select
           label="Sort by"
