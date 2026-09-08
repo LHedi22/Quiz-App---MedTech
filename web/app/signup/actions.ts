@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { resolveSignupRedirect } from "./resolveRedirect";
 
 export async function signup(formData: FormData) {
   const supabase = await createClient();
@@ -9,11 +10,7 @@ export async function signup(formData: FormData) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
 
-  const { error } = await supabase.auth.signUp({ email, password });
+  const result = await supabase.auth.signUp({ email, password });
 
-  if (error) {
-    redirect(`/signup?error=${encodeURIComponent(error.message)}`);
-  }
-
-  redirect("/quizzes");
+  redirect(resolveSignupRedirect(result));
 }
