@@ -41,6 +41,10 @@ test("full happy path driven through the Next.js UI finalizes all 3 versions at 
 
   const rows = page.locator("li[data-version-id]");
   await expect(rows).toHaveCount(3);
+  // The version list renders before its per-row signed PDF URLs resolve
+  // (they load with Promise.allSettled now) - wait for every "Download PDF"
+  // link to appear before reading their hrefs.
+  await expect(page.getByTestId("download-pdf")).toHaveCount(3);
   const versions = await rows.evaluateAll((els) =>
     els.map((el) => {
       const link = el.querySelector('[data-testid="download-pdf"]') as HTMLAnchorElement | null;
