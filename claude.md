@@ -149,9 +149,10 @@ create table submissions (
   total_score float,
   status text not null default 'pending',   -- pending | finalized | needs_review
   created_at timestamptz not null default now(),
-  capture_id text                           -- optional, client-generated; unique per non-null
+  capture_id text,                          -- optional, client-generated; unique per non-null
                                              -- value, lets a retried scan return the existing
                                              -- submission instead of creating a duplicate
+  name_manually_edited boolean not null default false -- professor edited student_name by hand
 );
 
 create table answers (
@@ -162,7 +163,9 @@ create table answers (
   confidence float not null,
   flagged boolean not null default false,
   correct boolean,
-  score float
+  score float,
+  manually_edited boolean not null default false, -- professor set this answer's marked option by hand
+  edited_at timestamptz                            -- when that last happened, nullable
 );
 ```
 
