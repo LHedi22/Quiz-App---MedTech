@@ -12,12 +12,27 @@ import type {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL!;
 
+/** Every API call aborts after this long rather than hanging the awaiting
+ * server component (and holding the Vercel/Cloud Run request open) until an
+ * upstream timeout. */
+const REQUEST_TIMEOUT_MS = 15000;
+
 export class ApiError extends Error {
   constructor(
     public status: number,
     public body: unknown,
   ) {
     super(`API request failed with status ${status}`);
+  }
+}
+
+/** A request that never got a response within REQUEST_TIMEOUT_MS. Extends
+ * ApiError (status 0, no body) so existing `catch (e) { if (e instanceof
+ * ApiError) ... }` paths keep working. */
+export class ApiTimeoutError extends ApiError {
+  constructor(public path: string) {
+    super(0, null);
+    this.message = `API request to ${path} timed out after ${REQUEST_TIMEOUT_MS}ms`;
   }
 }
 
@@ -52,13 +67,24 @@ async function request<T>(
   accessToken: string,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...(init?.headers ?? {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      // A caller-supplied signal wins if there is one; otherwise every
+      // request gets the default timeout.
+      signal: init?.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new ApiTimeoutError(path);
+    }
+    throw err;
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
