@@ -21,6 +21,7 @@ import psycopg
 
 from app.ml.omr.name_ocr import NameDetectionResult
 from app.models.scoring import ScoringResult
+from app.services.scoring import score_answer, sum_answer_scores
 
 
 @dataclass
@@ -252,10 +253,10 @@ def _recompute_submission_status(cur: psycopg.Cursor, submission_id: UUID) -> No
         )
     else:
         cur.execute("select score from answers where submission_id = %s", (submission_id,))
-        # No answer is flagged here, so every score is a real number - but a
-        # professor-blanked answer stores 0.0 explicitly and a defensive
-        # `or 0.0` keeps a stray NULL from turning the total into a TypeError.
-        total = sum((r[0] or 0.0) for r in cur.fetchall())
+        # Same summation rule as the scan path (scoring.sum_answer_scores),
+        # so a manual edit and a fresh scan of the same final answer set
+        # produce an identical total.
+        total = sum_answer_scores(r[0] for r in cur.fetchall())
         cur.execute(
             "update submissions set status = 'finalized', total_score = %s where id = %s",
             (total, submission_id),
@@ -314,8 +315,7 @@ def apply_manual_correction(
         )
         expected = cur.fetchone()[0]
 
-        correct = marked_option is not None and marked_option == expected
-        score = 1.0 if correct else 0.0
+        correct, score = score_answer(marked_option, expected)
         cur.execute(
             """
             update answers

@@ -12,6 +12,7 @@ below its threshold. Any one flagged answer routes the whole submission to
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from string import ascii_uppercase
 from uuid import UUID
 
@@ -63,6 +64,31 @@ def lookup_version_by_qr_id(conn: psycopg.Connection, qr_id: str) -> VersionLook
     return VersionLookupResult(version=version, questions_by_id=questions_by_id)
 
 
+# The per-question weight. Every question is worth this today; a future
+# weighted or negative-marking scheme changes it here once and BOTH the scan
+# pipeline and the professor-correction path (submissions.py) follow, rather
+# than each re-hardcoding 1.0/0.0 and silently diverging.
+CORRECT_SCORE = 1.0
+INCORRECT_SCORE = 0.0
+
+
+def score_answer(marked_option: str | None, key_option: str | None) -> tuple[bool, float]:
+    """Score one answer against the master key. A blank (`marked_option is
+    None`) is never correct. Shared by `translate_and_score` (scan path) and
+    `submissions.apply_manual_correction` (professor edit) so the weight and
+    the correctness rule live in exactly one place."""
+    correct = marked_option is not None and marked_option == key_option
+    return correct, CORRECT_SCORE if correct else INCORRECT_SCORE
+
+
+def sum_answer_scores(scores: Iterable[float | None]) -> float:
+    """Total of an answer set's per-question scores. A missing score counts
+    as 0 - a professor-blanked answer stores 0.0 explicitly; this also
+    guards a stray NULL from becoming a TypeError. Shared by the scan path
+    and `submissions._recompute_submission_status`."""
+    return sum(s or 0.0 for s in scores)
+
+
 def _status_for(answers: list[ScoredAnswer]) -> str:
     return "needs_review" if any(a.flagged for a in answers) else "finalized"
 
@@ -70,7 +96,7 @@ def _status_for(answers: list[ScoredAnswer]) -> str:
 def _total_score(answers: list[ScoredAnswer], status: str) -> float | None:
     if status != "finalized":
         return None
-    return sum(a.score for a in answers if a.score is not None)
+    return sum_answer_scores(a.score for a in answers)
 
 
 def translate_and_score(
@@ -114,8 +140,7 @@ def translate_and_score(
         correct = None
         score = None
         if not flagged:
-            correct = detected_option == question.correct_option
-            score = 1.0 if correct else 0.0
+            correct, score = score_answer(detected_option, question.correct_option)
 
         answers.append(
             ScoredAnswer(
