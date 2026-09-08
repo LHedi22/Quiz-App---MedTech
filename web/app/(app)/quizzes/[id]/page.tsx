@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import {
   createVersions,
   getVersionPdfUrl,
@@ -18,55 +18,73 @@ export default function QuizDetailPage({ params }: { params: Promise<{ id: strin
 
   const [versions, setVersions] = useState<VersionSummary[] | null>(null);
   const [pdfUrls, setPdfUrls] = useState<Record<string, string>>({});
+  // Versions whose signed-URL fetch failed - shown with a per-row retry
+  // rather than failing the whole page (a storage hiccup on one version
+  // must not hide the other versions or the list itself).
+  const [pdfFailedIds, setPdfFailedIds] = useState<Record<string, boolean>>({});
   const [count, setCount] = useState(3);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  async function fetchVersionsAndPdfUrls() {
+  const loadPdfUrl = useCallback(async (versionId: string, token: string) => {
+    try {
+      const { url } = await getVersionPdfUrl(versionId, token);
+      setPdfUrls((prev) => ({ ...prev, [versionId]: url }));
+      setPdfFailedIds((prev) => {
+        if (!prev[versionId]) return prev;
+        const next = { ...prev };
+        delete next[versionId];
+        return next;
+      });
+    } catch {
+      setPdfFailedIds((prev) => ({ ...prev, [versionId]: true }));
+    }
+  }, []);
+
+  const loadVersions = useCallback(async () => {
     const token = await getAccessToken();
     const loaded = await listQuizVersions(quizId, token);
-
-    const urls: Record<string, string> = {};
-    await Promise.all(
-      loaded.map(async (version) => {
-        const { url } = await getVersionPdfUrl(version.id, token);
-        urls[version.id] = url;
-      }),
-    );
-    return { loaded, urls };
-  }
-
-  async function loadVersions() {
-    const { loaded, urls } = await fetchVersionsAndPdfUrls();
     setVersions(loaded);
-    setPdfUrls(urls);
-  }
+    // allSettled, not all: one rejected URL fetch must not throw here.
+    await Promise.allSettled(loaded.map((version) => loadPdfUrl(version.id, token)));
+  }, [quizId, loadPdfUrl]);
 
   useEffect(() => {
     let ignore = false;
-    fetchVersionsAndPdfUrls()
-      .then(({ loaded, urls }) => {
-        if (ignore) return;
-        setVersions(loaded);
-        setPdfUrls(urls);
-      })
-      .catch(() => {
-        if (!ignore) setError("Could not load versions.");
-      });
+    (async () => {
+      const token = await getAccessToken();
+      const loaded = await listQuizVersions(quizId, token);
+      if (ignore) return;
+      setVersions(loaded);
+      await Promise.allSettled(loaded.map((version) => loadPdfUrl(version.id, token)));
+    })().catch(() => {
+      setError("Could not load versions.");
+    });
     return () => {
       ignore = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quizId]);
+  }, [quizId, loadPdfUrl]);
+
+  async function retryPdf(versionId: string) {
+    const token = await getAccessToken();
+    await loadPdfUrl(versionId, token);
+  }
 
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       const token = await getAccessToken();
       await createVersions(quizId, count, token);
-      await loadVersions();
+      try {
+        await loadVersions();
+      } catch {
+        // Generation succeeded server-side; only the refresh failed.
+        setNotice("Versions generated. Refresh the page to see them.");
+      }
     } catch {
       setError("Could not generate versions. Does this quiz have any questions?");
     } finally {
@@ -79,6 +97,7 @@ export default function QuizDetailPage({ params }: { params: Promise<{ id: strin
       <h1 className="font-display text-2xl font-semibold text-olive-deep">Versions</h1>
 
       {error && <Alert tone="error">{error}</Alert>}
+      {notice && <Alert tone="success">{notice}</Alert>}
 
       {versions === null ? (
         <p className="text-ink-soft">Loading…</p>
@@ -120,6 +139,15 @@ export default function QuizDetailPage({ params }: { params: Promise<{ id: strin
                 >
                   Download PDF
                 </a>
+              ) : pdfFailedIds[version.id] ? (
+                <button
+                  type="button"
+                  data-testid="retry-pdf"
+                  onClick={() => retryPdf(version.id)}
+                  className="rounded-sm border border-flag/40 px-3 py-1.5 text-sm font-medium text-flag hover:bg-flag-soft"
+                >
+                  PDF unavailable — retry
+                </button>
               ) : (
                 <span className="text-sm text-ink-soft">Preparing…</span>
               )}
